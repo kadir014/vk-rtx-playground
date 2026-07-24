@@ -1,3 +1,8 @@
+# Project stuff
+.vscode/
+subprojects/
+build_debug/
+
 # Prerequisites
 *.d
 
