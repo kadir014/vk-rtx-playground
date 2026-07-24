@@ -7,7 +7,8 @@ project(
         'c_std=c99',
         'warning_level=1',
         'default_library=static'
-    ]
+    ],
+    meson_version: '>=1.2.0', # For dependency default options
 )
 
 
@@ -16,8 +17,6 @@ compiler = meson.get_compiler('c')
 if compiler.get_id() == 'msvc'
     c_args = ['/arch:AVX2', '/D_CRT_SECURE_NO_WARNINGS']
     link_args = []
-
-    # c_args += ['/wd4305']
 else
     # -march=mavx2 ?
     c_args = []
@@ -45,11 +44,13 @@ sdl2_dep = dependency(
     default_options: {'use_video_vulkan': 'enabled'}
 )
 
+vulkan_dep = dependency('vulkan')
+
 if compiler.get_id() == 'msvc'
     sdl2_main_dep = dependency('sdl2main')
-    main_deps = [sdl2_dep, sdl2_main_dep,]
+    main_deps = [sdl2_dep, sdl2_main_dep, vulkan_dep]
 else
-    main_deps = [sdl2_dep,]
+    main_deps = [sdl2_dep, vulkan_dep]
 endif
 
 executable(

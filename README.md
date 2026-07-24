@@ -32,8 +32,9 @@ $ ./main
 
 
 # Resources
-- [vulkan-tutorial.com](https://vulkan-tutorial.com/)
-- [Khronos Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/00_Introduction.html)
+- [Vulkan Tutorial, by Alexander Overvoorde](https://vulkan-tutorial.com/)
+- [Vulkan Documentation — Khronos Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/00_Introduction.html)
+- [AMD GPUOpen — Understanding Vulkan® Objects](https://gpuopen.com/learn/understanding-vulkan-objects/)
 
 
 # License

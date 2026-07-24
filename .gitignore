@@ -2,6 +2,7 @@
 .vscode/
 subprojects/
 build_debug/
+*.spv
 
 # Prerequisites
 *.d
