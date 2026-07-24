@@ -257,6 +257,21 @@ void validate_physical_device(
     VkExtensionProperties *available_extensions = malloc(sizeof(VkExtensionProperties) * n_extensions);
     vkEnumerateDeviceExtensionProperties(phydevice, NULL, &n_extensions, available_extensions);
 
+    VkPhysicalDeviceDynamicRenderingFeatures dr = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+        .pNext = NULL,
+        .dynamicRendering = VK_FALSE
+    };
+
+    VkPhysicalDeviceFeatures2 features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &dr
+    };
+    vkGetPhysicalDeviceFeatures2(phydevice, &features);
+
+    printf("GPU supports dynamic rendering? %u\n\n", dr.dynamicRendering);
+
+
     // printf("Found %u available extensions for the current physical device:\n", n_extensions);
     // for (uint32_t i = 0; i < n_extensions; i++) {
     //     printf("%u: %s\n", i, available_extensions[i].extensionName);
@@ -347,10 +362,55 @@ VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
 }
 
 
+// https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/03_Drawing/01_Command_buffers.html#_image_layout_transitions
+void transition_image_layout(
+    VkCommandBuffer cmd_buf,
+    uint32_t image_idx,
+    VkImage *swapchain_images,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask
+) {
+    const VkImageMemoryBarrier2 barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = NULL,
+        .srcStageMask = src_stage_mask,
+        .srcAccessMask = src_access_mask,
+        .dstStageMask = dst_stage_mask,
+        .dstAccessMask = dst_access_mask,
+        .oldLayout = old_layout,
+        .newLayout = new_layout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = swapchain_images[image_idx],
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+
+    const VkDependencyInfo dependency_info = {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = NULL,
+        //.dependencyFlags = {},
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier
+    };
+
+	vkCmdPipelineBarrier2(cmd_buf, &dependency_info);
+}
+
+
 void record_cmd_buf(
     VkCommandBuffer cmd_buf,
-    VkRenderPass renderpass,
-    VkFramebuffer *framebuffers,
+    VkImage *swapchain_images,
+    VkImageView *views,
     VkExtent2D render_extent,
     VkPipeline graphics_pipeline,
     uint32_t image_idx
@@ -367,31 +427,64 @@ void record_cmd_buf(
         fatal("Failed to begin recording command buffer.");
     }
 
+    // Transition image layout for rendering
+    transition_image_layout(
+        cmd_buf,
+        image_idx,
+        swapchain_images,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_2_NONE,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+    );
+
     VkClearValue clear_color = {
         .color = (VkClearColorValue){1.0f, 0.0f, 0.0f, 1.0f},
         .depthStencil = 0
     };
 
-    // start render pass
-    VkRenderPassBeginInfo renderpass_begin_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    VkRenderingAttachmentInfo attachment_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .pNext = NULL,
-        .renderPass = renderpass,
-        .framebuffer = framebuffers[image_idx],
-        .renderArea.offset = (VkOffset2D){0, 0},
-        .renderArea.extent = render_extent,
-        .clearValueCount = 1,
-        .pClearValues = &clear_color
+        .imageView = views[image_idx],
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .clearValue = clear_color,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
     };
 
-    vkCmdBeginRenderPass(cmd_buf, &renderpass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+    VkRenderingInfo rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .renderArea.offset = (VkOffset2D){0, 0},
+        .renderArea.extent = render_extent,
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &attachment_info
+    };
+
+    vkCmdBeginRendering(cmd_buf, &rendering_info);
 
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
-
     vkCmdDraw(cmd_buf, 3, 1, 0, 0);
 
-    // stop render pass
-    vkCmdEndRenderPass(cmd_buf);
+    vkCmdEndRendering(cmd_buf);
+
+    // Transition image layout for presentation
+    transition_image_layout(
+        cmd_buf,
+        image_idx,
+        swapchain_images,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_2_NONE,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
+    );
 
     // stop recording
     if (vkEndCommandBuffer(cmd_buf) != VK_SUCCESS) {
@@ -475,9 +568,11 @@ int main(int argc, char *argv[]) {
 
     // LOGICAL DEVICE
 
-    #define N_REQUESTED_DEVICE_EXTENSIONS 1
+    #define N_REQUESTED_DEVICE_EXTENSIONS 3
     const char *requested_device_extensions[N_REQUESTED_DEVICE_EXTENSIONS] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
     };
 
     validate_physical_device(phydevice, requested_device_extensions, N_REQUESTED_DEVICE_EXTENSIONS);
@@ -512,9 +607,25 @@ int main(int argc, char *argv[]) {
 
     VkPhysicalDeviceFeatures device_features = {false};
 
+    // ENABLED FEATURES:
+    // Dynamic rendering
+    // Synchronization2
+
+    VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+        .pNext = NULL,
+        .dynamicRendering = VK_TRUE
+    };
+
+    VkPhysicalDeviceSynchronization2Features sync2_feat = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+        .pNext = &dynamic_rendering,
+        .synchronization2 = VK_TRUE
+    };
+
     VkDeviceCreateInfo device_create_info = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = NULL,
+        .pNext = &sync2_feat,
         .queueCreateInfoCount = N_UNIQUE_FAMILIES,
         .pQueueCreateInfos = queue_create_infos,
         .pEnabledFeatures = &device_features,
@@ -659,64 +770,6 @@ int main(int argc, char *argv[]) {
     }
 
 
-    // RENDER PASSES
-    // TODO: USE DYNAMIC RENDERING (vk1.3+) INSTEAD OF RENDER PASSES. RENDER PASSES ARE DEPRECATED IN vk1.4
-
-    // load_op_load -> Attachment data is preserved
-    // load_op_clear -> Attachment data is cleared
-    // dont_care -> means data is undefined after operation
-    // TODO: FinalLayout'u değiştirmeyi dene hata falan olcak mı, PRESENT_SRC_KHR swapchainde presentlenmeye hazır demekmiş
-    VkAttachmentDescription color_attachment = {
-        .format = best_format.format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-    };
-
-    VkAttachmentReference color_attachment_ref = {
-        .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-
-    VkSubpassDescription subpass = {
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref,
-        .pInputAttachments = NULL,
-        .inputAttachmentCount = 0,
-    };
-
-    VkSubpassDependency dependency = {
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 0,
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .srcAccessMask = 0,
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-    };
-
-    VkRenderPassCreateInfo renderpass_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency,
-    };
-
-    VkRenderPass renderpass = VK_NULL_HANDLE;
-    if (vkCreateRenderPass(device, &renderpass_info, NULL, &renderpass) != VK_SUCCESS) {
-        fatal("Failed to create renderpass.");
-    }
-
-
     // SHADERS
 
     VkShaderModule vert_module = create_shader_module(device, "../shaders/first.vert.spv");
@@ -858,9 +911,16 @@ int main(int argc, char *argv[]) {
     
     // GRAPHICS PIPELINE
 
+    VkPipelineRenderingCreateInfo pipeline_rendering_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .pNext = NULL,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &best_format.format
+    };
+
     VkGraphicsPipelineCreateInfo pipeline_info = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .pNext = NULL,
+        .pNext = &pipeline_rendering_info,
         .flags = 0,
 
         // Shader stages
@@ -881,7 +941,7 @@ int main(int argc, char *argv[]) {
         .layout = pipeline_lyt,
 
         // Renderpass
-        .renderPass = renderpass,
+        .renderPass = NULL,
         .subpass = 0,
 
         // For graphics pipeline derivation
@@ -892,30 +952,6 @@ int main(int argc, char *argv[]) {
     VkPipeline graphics_pipeline = VK_NULL_HANDLE;
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &graphics_pipeline) != VK_SUCCESS) {
         fatal("Failed to create graphics pipeline.");
-    }
-
-
-    // FRAMEBUFFERS
-
-    VkFramebuffer *framebuffers = malloc(sizeof(VkFramebuffer) * n_swapchain_images);
-    for (uint32_t i = 0; i < n_swapchain_images; i++) {
-        VkImageView attachments[1] = {swapchain_image_views[i]};
-
-        VkFramebufferCreateInfo create_info = {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .pNext = NULL,
-            .flags = 0,
-            .renderPass = renderpass,
-            .attachmentCount = 1,
-            .pAttachments = attachments,
-            .width = best_extent.width,
-            .height = best_extent.height,
-            .layers = 1,
-        };
-
-        if (vkCreateFramebuffer(device, &create_info, NULL, &framebuffers[i]) != VK_SUCCESS) {
-            fatal("Failed to create framebuffer.");
-        }
     }
 
 
@@ -1011,8 +1047,8 @@ int main(int argc, char *argv[]) {
         vkResetCommandBuffer(cmd_buf, 0);
         record_cmd_buf(
             cmd_buf,
-            renderpass,
-            framebuffers,
+            swapchain_images,
+            swapchain_image_views,
             best_extent,
             graphics_pipeline,
             image_idx
@@ -1064,19 +1100,12 @@ int main(int argc, char *argv[]) {
 
     vkDestroyCommandPool(device, cmd_pool, NULL);
 
-    for (uint32_t i = 0; i < n_swapchain_images; i++) {
-        vkDestroyFramebuffer(device, framebuffers[i], NULL);
-    }
-    free(framebuffers);
-
     vkDestroyPipeline(device, graphics_pipeline, NULL);
 
     vkDestroyPipelineLayout(device, pipeline_lyt, NULL);
 
     vkDestroyShaderModule(device, frag_module, NULL);
     vkDestroyShaderModule(device, vert_module, NULL);
-
-    vkDestroyRenderPass(device, renderpass, NULL);
 
     for (uint32_t i = 0; i < n_swapchain_images; i++) {
         vkDestroyImageView(device, swapchain_image_views[i], NULL);
