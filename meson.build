@@ -28,16 +28,22 @@ else
 endif
 
 
+lava_src = [
+    'src/lava/containers/array.c',
+    'src/lava/containers/refarray.c',
+    'src/lava/clock.c',
+]
+
+lava_includes = ['include']
+
+
 python = find_program('python3', 'python')
 r = run_command(python, 'scripts/install_wraps.py')
 if r.returncode() != 0
     error('install_wraps.py script failed.\n', r.stderr())
 endif
 
-main_src = [
-    'src/main.c',
-]
-main_includes = ['include']
+main_src = ['src/main.c',] + lava_src
 
 sdl2_dep = dependency(
     'sdl2',
@@ -56,7 +62,21 @@ endif
 executable(
     'main',
     sources: main_src,
-    include_directories: main_includes,
+    include_directories: lava_includes,
+    c_args: c_args,
+    link_args: link_args,
+    dependencies: main_deps,
+)
+
+
+# Unit tests
+
+tests_src = ['tests/main.c'] + lava_src
+
+executable(
+    'tests',
+    sources: tests_src,
+    include_directories: lava_includes + ['tests'],
     c_args: c_args,
     link_args: link_args,
     dependencies: main_deps,
