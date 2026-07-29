@@ -23,7 +23,7 @@ lvArray lvArray_new_ex(
         return array;
     }
 
-    array.data = malloc(elem_size * default_capacity);
+    array.data = LV_MALLOC(elem_size * default_capacity);
 
     return array;
 }
@@ -33,11 +33,12 @@ void lvArray_free(lvArray *array) {
         return;
     }
 
-    free(array->data);
+    LV_FREE(array->data);
 }
 
 bool lvArray_valid(lvArray *array) {
     return !(
+        !array ||
         !array->data ||
         array->growth_factor <= 1.0f ||
         array->size > array->capacity
@@ -45,6 +46,10 @@ bool lvArray_valid(lvArray *array) {
 }
 
 int lvArray_add(lvArray *array, void *elem) {
+    if (!array) {
+        return 2;
+    }
+
     // Only reallocate when max capacity is reached
     if (array->size == array->capacity) {
         array->size++;
@@ -52,7 +57,7 @@ int lvArray_add(lvArray *array, void *elem) {
         size_t new_capacity = (size_t)((float)array->capacity * array->growth_factor);
         array->capacity = new_capacity;
 
-        array->data = realloc(array->data, array->capacity * array->element_size);
+        array->data = LV_REALLOC(array->data, array->capacity * array->element_size);
         if (!array->data) {
             return 1;
         }
@@ -66,6 +71,32 @@ int lvArray_add(lvArray *array, void *elem) {
         elem,
         array->element_size
     );
+
+    return 0;
+}
+
+int lvArray_resize(lvArray *array) {
+    if (!array) {
+        return 2;
+    }
+
+    if (array->size == array->capacity) {
+        return 0;
+    }
+
+    size_t new_capacity = array->size;
+
+    void *new_data = realloc(
+        array->data,
+        new_capacity * array->element_size
+    );
+
+    if (!new_data) {
+        return 1;
+    }
+
+    array->capacity = new_capacity;
+    array->data = new_data;
 
     return 0;
 }

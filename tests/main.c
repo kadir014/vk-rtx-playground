@@ -136,7 +136,7 @@ void test_lvArray_add(ttUnitTestSuite *test) {
     int a = 42;
     lvArray_add(&array, &a);
 
-    tt_expect_int(*LV_ARRAY_AT(&array, 0, int), 42, test);
+    tt_expect_int(LV_ARRAY_AT(&array, 0, int), 42, test);
     tt_expect_size_t(array.capacity, 1, test);
     tt_expect_size_t(array.size, 1, test);
 

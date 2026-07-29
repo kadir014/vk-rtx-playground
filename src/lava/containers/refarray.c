@@ -18,7 +18,7 @@ lvRefArray lvRefArray_new_ex(size_t default_capacity, float growth_factor) {
         return refarray;
     }
 
-    refarray.data = malloc(sizeof(void *) * default_capacity);
+    refarray.data = LV_MALLOC(sizeof(void *) * default_capacity);
 
     /*
         The allocated data is not zeroed out for performance reasons.
@@ -34,7 +34,7 @@ void lvRefArray_free(lvRefArray *refarray) {
         return;
     }
 
-    free(refarray->data);
+    LV_FREE(refarray->data);
 }
 
 bool lvRefArray_valid(lvRefArray *refarray) {
@@ -53,7 +53,7 @@ int lvRefArray_add(lvRefArray *refarray, void *elem) {
         size_t new_capacity = (size_t)((float)refarray->capacity * refarray->growth_factor);
         refarray->capacity = new_capacity;
 
-        refarray->data = realloc(refarray->data, refarray->capacity * sizeof(void *));
+        refarray->data = LV_REALLOC(refarray->data, refarray->capacity * sizeof(void *));
         if (!refarray->data) {
             return 1;
         }

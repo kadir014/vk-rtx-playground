@@ -23,7 +23,7 @@ typedef struct {
  * @param type Type of the element.
  * @return Element at given index. Note that no bounds check is done.
  */
-#define LV_ARRAY_AT(array, index, type) ((type *)((char *)(array)->data + (index) * (array)->element_size))
+#define LV_ARRAY_AT(array, index, type) (*(type *)((char *)(array)->data + (index) * (array)->element_size))
 
 /**
  * @brief Create a new array.
@@ -77,6 +77,18 @@ bool lvArray_valid(lvArray *array);
  *         `1` if failed to reallocate.
  */
 int lvArray_add(lvArray *array, void *elem);
+
+/**
+ * @brief Synchronize the reserved space with current size.
+ * 
+ * Use this function only if you manually updated the `size` member.
+ * 
+ * @param array Array.
+ * @return `0` if successful.
+ *         `1` if failed to rallocate.
+ *         `2` if array is invalid.
+ */
+int lvArray_resize(lvArray *array);
 
 
 #endif // LAVA_ARRAY_H
