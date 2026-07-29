@@ -21,10 +21,11 @@
  * - Reports every failed test and the parameters.
  * - Define your own TT_DBL_ERROR to determine float comparison error.
  * - Internal functions start with an underscore, rest is public API.
- * - Expect condition.
- * - Expect floats and doubles.
- * - Expect pointer addresses.
- * - Expect all integral types.
+ * - Expect condition (tt_expect).
+ * - Expect floats and doubles (tt_expect_[float, double]).
+ * - Expect strings (tt_expect_string)
+ * - Expect pointer addresses (tt_expect_p).
+ * - Expect all integral types (tt_expect_[int type]).
  * 
  * Example usage:
  * 
@@ -336,70 +337,70 @@ void tt_expect_##name(type value, type expect, ttUnitTestSuite *test) \
 
 /* Standard integer types */
 
-_TT_DEFINE_INTEGRAL_EXPECT(char,                  char,                  "%c")
-_TT_DEFINE_INTEGRAL_EXPECT(signed_char,           signed char,           "%hhd")
-_TT_DEFINE_INTEGRAL_EXPECT(unsigned_char,         unsigned char,         "%hhu")
+_TT_DEFINE_INTEGRAL_EXPECT(char,               char,               "%c")
+_TT_DEFINE_INTEGRAL_EXPECT(signed_char,        signed char,        "%hhd")
+_TT_DEFINE_INTEGRAL_EXPECT(unsigned_char,      unsigned char,      "%hhu")
 
-_TT_DEFINE_INTEGRAL_EXPECT(short,                 short,                 "%hd")
-_TT_DEFINE_INTEGRAL_EXPECT(unsigned_short,        unsigned short,        "%hu")
+_TT_DEFINE_INTEGRAL_EXPECT(short,              short,              "%hd")
+_TT_DEFINE_INTEGRAL_EXPECT(unsigned_short,     unsigned short,     "%hu")
 
-_TT_DEFINE_INTEGRAL_EXPECT(int,                   int,                   "%d")
-_TT_DEFINE_INTEGRAL_EXPECT(unsigned_int,          unsigned int,          "%u")
+_TT_DEFINE_INTEGRAL_EXPECT(int,                int,                "%d")
+_TT_DEFINE_INTEGRAL_EXPECT(unsigned_int,       unsigned int,       "%u")
 
-_TT_DEFINE_INTEGRAL_EXPECT(long,                  long,                  "%ld")
-_TT_DEFINE_INTEGRAL_EXPECT(unsigned_long,         unsigned long,         "%lu")
+_TT_DEFINE_INTEGRAL_EXPECT(long,               long,               "%ld")
+_TT_DEFINE_INTEGRAL_EXPECT(unsigned_long,      unsigned long,      "%lu")
 
-_TT_DEFINE_INTEGRAL_EXPECT(long_long,             long long,             "%lld")
-_TT_DEFINE_INTEGRAL_EXPECT(unsigned_long_long,    unsigned long long,    "%llu")
+_TT_DEFINE_INTEGRAL_EXPECT(long_long,          long long,          "%lld")
+_TT_DEFINE_INTEGRAL_EXPECT(unsigned_long_long, unsigned long long, "%llu")
 
 /* stdint.h exact-width integer types */
 
-_TT_DEFINE_INTEGRAL_EXPECT(int8_t,                int8_t,                "%" PRId8)
-_TT_DEFINE_INTEGRAL_EXPECT(uint8_t,               uint8_t,               "%" PRIu8)
+_TT_DEFINE_INTEGRAL_EXPECT(int8_t,             int8_t,             "%" PRId8)
+_TT_DEFINE_INTEGRAL_EXPECT(uint8_t,            uint8_t,            "%" PRIu8)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int16_t,               int16_t,               "%" PRId16)
-_TT_DEFINE_INTEGRAL_EXPECT(uint16_t,              uint16_t,              "%" PRIu16)
+_TT_DEFINE_INTEGRAL_EXPECT(int16_t,            int16_t,            "%" PRId16)
+_TT_DEFINE_INTEGRAL_EXPECT(uint16_t,           uint16_t,           "%" PRIu16)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int32_t,               int32_t,               "%" PRId32)
-_TT_DEFINE_INTEGRAL_EXPECT(uint32_t,              uint32_t,              "%" PRIu32)
+_TT_DEFINE_INTEGRAL_EXPECT(int32_t,            int32_t,            "%" PRId32)
+_TT_DEFINE_INTEGRAL_EXPECT(uint32_t,           uint32_t,           "%" PRIu32)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int64_t,               int64_t,               "%" PRId64)
-_TT_DEFINE_INTEGRAL_EXPECT(uint64_t,              uint64_t,              "%" PRIu64)
+_TT_DEFINE_INTEGRAL_EXPECT(int64_t,            int64_t,            "%" PRId64)
+_TT_DEFINE_INTEGRAL_EXPECT(uint64_t,           uint64_t,           "%" PRIu64)
 
 /* stdint.h least-width integer types */
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_least8_t,          int_least8_t,          "%" PRIdLEAST8)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_least8_t,         uint_least8_t,         "%" PRIuLEAST8)
+_TT_DEFINE_INTEGRAL_EXPECT(int_least8_t,       int_least8_t,       "%" PRIdLEAST8)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_least8_t,      uint_least8_t,      "%" PRIuLEAST8)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_least16_t,         int_least16_t,         "%" PRIdLEAST16)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_least16_t,        uint_least16_t,        "%" PRIuLEAST16)
+_TT_DEFINE_INTEGRAL_EXPECT(int_least16_t,      int_least16_t,      "%" PRIdLEAST16)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_least16_t,     uint_least16_t,     "%" PRIuLEAST16)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_least32_t,         int_least32_t,         "%" PRIdLEAST32)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_least32_t,        uint_least32_t,        "%" PRIuLEAST32)
+_TT_DEFINE_INTEGRAL_EXPECT(int_least32_t,      int_least32_t,      "%" PRIdLEAST32)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_least32_t,     uint_least32_t,     "%" PRIuLEAST32)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_least64_t,         int_least64_t,         "%" PRIdLEAST64)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_least64_t,        uint_least64_t,        "%" PRIuLEAST64)
+_TT_DEFINE_INTEGRAL_EXPECT(int_least64_t,      int_least64_t,      "%" PRIdLEAST64)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_least64_t,     uint_least64_t,     "%" PRIuLEAST64)
 
 /* stdint.h fastest integer types */
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_fast8_t,           int_fast8_t,           "%" PRIdFAST8)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_fast8_t,          uint_fast8_t,          "%" PRIuFAST8)
+_TT_DEFINE_INTEGRAL_EXPECT(int_fast8_t,        int_fast8_t,        "%" PRIdFAST8)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_fast8_t,       uint_fast8_t,       "%" PRIuFAST8)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_fast16_t,          int_fast16_t,          "%" PRIdFAST16)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_fast16_t,         uint_fast16_t,         "%" PRIuFAST16)
+_TT_DEFINE_INTEGRAL_EXPECT(int_fast16_t,       int_fast16_t,       "%" PRIdFAST16)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_fast16_t,      uint_fast16_t,      "%" PRIuFAST16)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_fast32_t,          int_fast32_t,          "%" PRIdFAST32)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_fast32_t,         uint_fast32_t,         "%" PRIuFAST32)
+_TT_DEFINE_INTEGRAL_EXPECT(int_fast32_t,       int_fast32_t,       "%" PRIdFAST32)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_fast32_t,      uint_fast32_t,      "%" PRIuFAST32)
 
-_TT_DEFINE_INTEGRAL_EXPECT(int_fast64_t,          int_fast64_t,          "%" PRIdFAST64)
-_TT_DEFINE_INTEGRAL_EXPECT(uint_fast64_t,         uint_fast64_t,         "%" PRIuFAST64)
+_TT_DEFINE_INTEGRAL_EXPECT(int_fast64_t,       int_fast64_t,       "%" PRIdFAST64)
+_TT_DEFINE_INTEGRAL_EXPECT(uint_fast64_t,      uint_fast64_t,      "%" PRIuFAST64)
 
 /* Word-sized integers */
 
-_TT_DEFINE_INTEGRAL_EXPECT(intptr_t,              intptr_t,              "%" PRIdPTR)
-_TT_DEFINE_INTEGRAL_EXPECT(uintptr_t,             uintptr_t,             "%" PRIuPTR)
-_TT_DEFINE_INTEGRAL_EXPECT(size_t,                size_t,                "%zu")
-_TT_DEFINE_INTEGRAL_EXPECT(ptrdiff_t,             ptrdiff_t,             "%td")
+_TT_DEFINE_INTEGRAL_EXPECT(intptr_t,           intptr_t,           "%" PRIdPTR)
+_TT_DEFINE_INTEGRAL_EXPECT(uintptr_t,          uintptr_t,          "%" PRIuPTR)
+_TT_DEFINE_INTEGRAL_EXPECT(size_t,             size_t,             "%zu")
+_TT_DEFINE_INTEGRAL_EXPECT(ptrdiff_t,          ptrdiff_t,          "%td")
 
 
 #endif // TINYTEST_H

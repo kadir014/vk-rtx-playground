@@ -57,10 +57,16 @@ int lvArray_add(lvArray *array, void *elem) {
         size_t new_capacity = (size_t)((float)array->capacity * array->growth_factor);
         array->capacity = new_capacity;
 
-        array->data = LV_REALLOC(array->data, array->capacity * array->element_size);
-        if (!array->data) {
+        void *new_data = LV_REALLOC(
+            array->data,
+            array->capacity * array->element_size
+        );
+
+        if (!new_data) {
             return 1;
         }
+
+        array->data = new_data;
     }
     else {
         array->size++;
@@ -86,7 +92,7 @@ int lvArray_resize(lvArray *array) {
 
     size_t new_capacity = array->size;
 
-    void *new_data = realloc(
+    void *new_data = LV_REALLOC(
         array->data,
         new_capacity * array->element_size
     );

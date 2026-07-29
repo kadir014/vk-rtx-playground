@@ -53,10 +53,16 @@ int lvRefArray_add(lvRefArray *refarray, void *elem) {
         size_t new_capacity = (size_t)((float)refarray->capacity * refarray->growth_factor);
         refarray->capacity = new_capacity;
 
-        refarray->data = LV_REALLOC(refarray->data, refarray->capacity * sizeof(void *));
-        if (!refarray->data) {
+        void **new_data = LV_REALLOC(
+            refarray->data,
+            refarray->capacity * sizeof(void *)
+        );
+
+        if (!new_data) {
             return 1;
         }
+
+        refarray->data = new_data;
     }
     else {
         refarray->size++;

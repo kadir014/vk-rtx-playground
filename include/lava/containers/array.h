@@ -26,6 +26,16 @@ typedef struct {
 #define LV_ARRAY_AT(array, index, type) (*(type *)((char *)(array)->data + (index) * (array)->element_size))
 
 /**
+ * @brief Get pointer of element at given index.
+ * 
+ * @param array Pointer to array.
+ * @param index Index of the element.
+ * @param type Type of the element.
+ * @return Element at given index. Note that no bounds check is done.
+ */
+#define LV_ARRAY_PTR_AT(array, index, type) ((type *)((char *)(array)->data + (index) * (array)->element_size))
+
+/**
  * @brief Create a new array.
  * 
  * Use @ref lvArray_valid to see if creation was successful.
