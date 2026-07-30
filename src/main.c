@@ -605,15 +605,11 @@ int create_swapchain(Context *ctx) {
         if (vkCreateImageView(ctx->device, &create_info, NULL, LV_ARRAY_PTR_AT(&ctx->swapchain.views, i, VkImageView)) != VK_SUCCESS) {
             printf("Failed to create image view.");
             return 3;
-        } else {
-            printf("view creation successful\n");
         }
     }
 
     lvArray_free(&sc.formats);
     lvArray_free(&sc.present_modes);
-
-    printf("imgs size: %zu\n", ctx->swapchain.images.size);
 
     return 0;
 }
@@ -971,6 +967,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
 	}
 
+    const size_t LV_FRAME_LAG = 2;
+
     SDL_Vulkan_LoadLibrary(NULL);
 
     uint32_t window_width = 1280;
@@ -1019,7 +1017,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-    // COMMAND BUFFERS & POOLS
+    // COMMAND BUFFERS
 
     VkCommandPool cmd_pool = VK_NULL_HANDLE;
     VkCommandPoolCreateInfo cmd_pool_info = {
@@ -1032,25 +1030,37 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create graphics command pool.");
     }
 
-    VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+    lvArray cmd_bufs = lvArray_new(sizeof(VkCommandBuffer));
+    cmd_bufs.size = LV_FRAME_LAG;
+    lvArray_resize(&cmd_bufs);
+
     VkCommandBufferAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = NULL,
         .commandPool = cmd_pool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1
+        .commandBufferCount = LV_FRAME_LAG
     };
 
-    if (vkAllocateCommandBuffers(ctx.device, &alloc_info, &cmd_buf) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(ctx.device, &alloc_info, (VkCommandBuffer *)cmd_bufs.data) != VK_SUCCESS) {
         lv_fatal("Failed to allocate command buffer.");
     }
 
 
     // SYNCHRONIZATION
 
-    VkSemaphore sem_img_available = VK_NULL_HANDLE;
-    VkSemaphore sem_render_finished = VK_NULL_HANDLE;
-    VkFence fen_in_flight = VK_NULL_HANDLE;
+    lvArray sems_img_available = lvArray_new(sizeof(VkSemaphore));
+    lvArray sems_render_finished = lvArray_new(sizeof(VkSemaphore));
+    lvArray fens_in_flight = lvArray_new(sizeof(VkFence));
+
+    sems_img_available.size = LV_FRAME_LAG;
+    lvArray_resize(&sems_img_available);
+
+    sems_render_finished.size = ctx.swapchain.images.size;
+    lvArray_resize(&sems_render_finished);
+
+    fens_in_flight.size = LV_FRAME_LAG;
+    lvArray_resize(&fens_in_flight);
 
     VkSemaphoreCreateInfo sem_info = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -1064,16 +1074,39 @@ int main(int argc, char *argv[]) {
         .flags = VK_FENCE_CREATE_SIGNALED_BIT
     };
 
-    if (
-        vkCreateSemaphore(ctx.device, &sem_info, NULL, &sem_img_available) != VK_SUCCESS ||
-        vkCreateSemaphore(ctx.device, &sem_info, NULL, &sem_render_finished) != VK_SUCCESS ||
-        vkCreateFence(ctx.device, &fen_info, NULL, &fen_in_flight) != VK_SUCCESS
-    ) {
-        lv_fatal("Failed to create synchronization structures.");
+    for (size_t i = 0; i < LV_FRAME_LAG; i++) {
+        if (
+            vkCreateSemaphore(ctx.device, &sem_info, NULL, LV_ARRAY_PTR_AT(&sems_img_available, i, VkSemaphore)) != VK_SUCCESS ||
+            vkCreateFence(ctx.device, &fen_info, NULL, LV_ARRAY_PTR_AT(&fens_in_flight, i, VkFence)) != VK_SUCCESS
+        ) {
+            lv_fatal("Failed to create synchronization structures.");
+        }
     }
+
+    for (size_t i = 0; i < sems_render_finished.size; i++) {
+        if (vkCreateSemaphore(ctx.device, &sem_info, NULL, LV_ARRAY_PTR_AT(&sems_render_finished, i, VkSemaphore)) != VK_SUCCESS) {
+            lv_fatal("Failed to create 'render_finished' semaphore.");
+        }
+    }
+
+    printf(
+        "Synchronization:\n"
+        "- Frame lag:          %zu\n"
+        "- Fences:             %zu\n"
+        "- Image semaphores:   %zu\n"
+        "- Present semaphores: %zu\n"
+        "\n",
+        LV_FRAME_LAG,
+        fens_in_flight.size,
+        sems_img_available.size,
+        sems_render_finished.size
+    );
 
 
     lvClock clock = lvClock_new();
+
+    // Frame index used by the synchronization structures
+    size_t frame_idx_sync = 0;
 
     bool is_running = true;
     while (is_running) {
@@ -1110,13 +1143,17 @@ int main(int argc, char *argv[]) {
 
         // DRAW FRAME
 
-        vkWaitForFences(ctx.device, 1, &fen_in_flight, VK_TRUE, UINT64_MAX);
-        vkResetFences(ctx.device, 1, &fen_in_flight);
+        VkFence curr_fen = LV_ARRAY_AT(&fens_in_flight, frame_idx_sync, VkFence);
+        vkWaitForFences(ctx.device, 1, &curr_fen, VK_TRUE, UINT64_MAX);
+        vkResetFences(ctx.device, 1, &curr_fen);
 
+        VkSemaphore sem_img_available = LV_ARRAY_AT(&sems_img_available, frame_idx_sync, VkSemaphore);
         uint32_t image_idx = 0;
         if (vkAcquireNextImageKHR(ctx.device, ctx.swapchain.swapchain, UINT64_MAX, sem_img_available, VK_NULL_HANDLE, &image_idx) != VK_SUCCESS) {
             printf("Failed to acquire next image from swapchain, continuing.");
         }
+
+        VkCommandBuffer cmd_buf = LV_ARRAY_AT(&cmd_bufs, frame_idx_sync, VkCommandBuffer);
 
         vkResetCommandBuffer(cmd_buf, 0);
         record_cmd_buf(
@@ -1124,6 +1161,8 @@ int main(int argc, char *argv[]) {
             cmd_buf,
             image_idx
         );
+
+        VkSemaphore sem_render_finished = LV_ARRAY_AT(&sems_render_finished, image_idx, VkSemaphore);
 
         VkPipelineStageFlags wait_stages[1] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
@@ -1139,7 +1178,7 @@ int main(int argc, char *argv[]) {
             .pCommandBuffers = &cmd_buf
         };
 
-        if (vkQueueSubmit(ctx.graphics_q, 1, &submit_info, fen_in_flight) != VK_SUCCESS) {
+        if (vkQueueSubmit(ctx.graphics_q, 1, &submit_info, curr_fen) != VK_SUCCESS) {
             lv_fatal("Failed to submit draw command buffer.");
         }
 
@@ -1160,16 +1199,26 @@ int main(int argc, char *argv[]) {
         if (vkQueuePresentKHR(ctx.present_q, &present_info) != VK_SUCCESS) {
             printf("Failed to present image to swapchain, continuing.");
         }
+
+        frame_idx_sync = (frame_idx_sync + 1) % LV_FRAME_LAG;
     }
 
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
-    vkDestroyFence(ctx.device, fen_in_flight, NULL);
-    vkDestroySemaphore(ctx.device, sem_render_finished, NULL);
-    vkDestroySemaphore(ctx.device, sem_img_available, NULL);
+    for (size_t i = 0; i < LV_FRAME_LAG; i++) {
+        vkDestroyFence(ctx.device, LV_ARRAY_AT(&fens_in_flight, i, VkFence), NULL);
+        vkDestroySemaphore(ctx.device, LV_ARRAY_AT(&sems_img_available, i, VkSemaphore), NULL);
+    }
+    for (size_t i = 0; i < sems_render_finished.size; i++) {
+        vkDestroySemaphore(ctx.device, LV_ARRAY_AT(&sems_render_finished, i, VkSemaphore), NULL);
+    }
+    lvArray_free(&sems_img_available);
+    lvArray_free(&sems_render_finished);
+    lvArray_free(&fens_in_flight);
 
     vkDestroyCommandPool(ctx.device, cmd_pool, NULL);
+    lvArray_free(&cmd_bufs);
 
     vkDestroyPipeline(ctx.device, ctx.graphics_pipeline, NULL);
 
