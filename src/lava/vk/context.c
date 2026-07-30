@@ -411,6 +411,8 @@ int lvContext_init(lvContext *ctx, SDL_Window *window) {
 
     ctx->swapchains = lvRefArray_new();
 
+    ctx->vertex_bindings = 0;
+
     return 0;
 }
 

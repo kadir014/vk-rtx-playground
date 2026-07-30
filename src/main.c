@@ -20,247 +20,6 @@ typedef struct {
 } Vertex;
 
 
-VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
-    lvFileContent shader_source = lv_read_file_raw(filepath);
-    if (!shader_source.data) {
-        lv_fatal("Failed to read shader file: %s", filepath);
-    }
-
-    // TODO codeSize zero-terminated length mi istiyor (length+1) yoksa normal length mi?
-    VkShaderModuleCreateInfo create_info = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .codeSize = shader_source.length,
-        .pCode = (uint32_t *)shader_source.data
-    };
-
-    VkShaderModule shader_module;
-    if (vkCreateShaderModule(device, &create_info, NULL, &shader_module) != VK_SUCCESS) {
-        lv_fatal("Failed to create shader module.");
-    }
-
-    LV_FREE(shader_source.data);
-
-    return shader_module;
-}
-
-
-// TODO: GRAPHICS PIPELINE'IN SWAPCHAINE IHTIYACI YOK, sadece extent vs için veriyorum parametre
-int create_graphics_pipeline(lvContext *ctx, lvSwapchain *swapchain) {
-    // SHADERS
-
-    VkShaderModule vert_module = create_shader_module(ctx->device, "../shaders/first.vert.spv");
-    VkShaderModule frag_module = create_shader_module(ctx->device, "../shaders/first.frag.spv");
-
-
-    // VERTEX BINDING
-
-    VkVertexInputBindingDescription vertex_binding_desc ={
-        .binding = 0,
-        .stride = sizeof(Vertex),
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-    };
-
-    VkVertexInputAttributeDescription vertex_attr_descs[2];
-    vertex_attr_descs[0] = (VkVertexInputAttributeDescription){
-        .binding = 0,
-        .location = 0,
-        .format = VK_FORMAT_R32G32_SFLOAT,
-        .offset = offsetof(Vertex, position)
-    };
-    vertex_attr_descs[1] = (VkVertexInputAttributeDescription){
-        .binding = 0,
-        .location = 1,
-        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-        .offset = offsetof(Vertex, color)
-    };
-
-
-    // FIXED PIPELINE
-
-    VkPipelineShaderStageCreateInfo vert_stage_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext = NULL,
-        .stage = VK_SHADER_STAGE_VERTEX_BIT,
-        .module = vert_module,
-        .pName = "main",
-        .pSpecializationInfo = NULL
-    };
-
-    VkPipelineShaderStageCreateInfo frag_stage_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext = NULL,
-        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = frag_module,
-        .pName = "main",
-        .pSpecializationInfo = NULL
-    };
-
-    VkPipelineShaderStageCreateInfo stage_infos[2] = {vert_stage_info, frag_stage_info};
-
-    VkPipelineVertexInputStateCreateInfo vertex_input_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions = &vertex_binding_desc,
-        .vertexAttributeDescriptionCount = 2,
-        .pVertexAttributeDescriptions = vertex_attr_descs,
-    };
-
-    VkPipelineInputAssemblyStateCreateInfo input_ass_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .primitiveRestartEnable = VK_FALSE,
-        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-    };
-
-    VkViewport viewport = {
-        .x = 0.0f,
-        .y = 0.0f,
-        .width = (float)swapchain->extent.width,
-        .height = (float)swapchain->extent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-
-    VkRect2D scissor = {
-        .extent = swapchain->extent,
-        .offset = (VkOffset2D){0, 0}
-    };
-
-    VkPipelineViewportStateCreateInfo viewport_state_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .viewportCount = 1,
-        .scissorCount = 1,
-        .pViewports = &viewport,
-        .pScissors = &scissor
-    };
-
-    VkPipelineRasterizationStateCreateInfo rasterizer_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .depthClampEnable = VK_FALSE,
-        .rasterizerDiscardEnable = VK_FALSE,
-        .polygonMode = VK_POLYGON_MODE_FILL,
-        .lineWidth = 1.0f,
-        .cullMode = VK_CULL_MODE_BACK_BIT,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
-        .depthBiasEnable = VK_FALSE,
-        .depthBiasConstantFactor = 0.0f,
-        .depthBiasClamp = 0.0f,
-        .depthBiasSlopeFactor = 0.0f,
-    };
-
-    VkPipelineMultisampleStateCreateInfo multisampling_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .sampleShadingEnable = VK_FALSE,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-        .minSampleShading = 1.0f,
-        .pSampleMask = NULL,
-        .alphaToCoverageEnable = VK_FALSE,
-        .alphaToOneEnable = VK_FALSE,
-    };
-
-    VkPipelineColorBlendAttachmentState color_blend_attachment_state = {
-        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-        .blendEnable = VK_TRUE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .colorBlendOp = VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .alphaBlendOp = VK_BLEND_OP_ADD,
-    };
-
-    VkPipelineColorBlendStateCreateInfo color_blending_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .logicOpEnable = VK_FALSE,
-        .logicOp = VK_LOGIC_OP_COPY,
-        .attachmentCount = 1,
-        .pAttachments = &color_blend_attachment_state,
-    };
-    color_blending_info.blendConstants[0] = 0.0f;
-    color_blending_info.blendConstants[1] = 0.0f;
-    color_blending_info.blendConstants[2] = 0.0f;
-    color_blending_info.blendConstants[3] = 0.0f;
-
-    VkPipelineLayoutCreateInfo pipeline_lyt_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .setLayoutCount = 0,
-        .pSetLayouts = NULL,
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges = NULL
-    };
-
-    if (vkCreatePipelineLayout(ctx->device, &pipeline_lyt_info, NULL, &ctx->pipeline_lyt) != VK_SUCCESS) {
-        printf("Failed to create pipeline layout.");
-        return 1;
-    }
-
-    
-    // GRAPHICS PIPELINE
-
-    VkPipelineRenderingCreateInfo pipeline_rendering_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-        .pNext = NULL,
-        .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &swapchain->format.format
-    };
-
-    VkGraphicsPipelineCreateInfo pipeline_info = {
-        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .pNext = &pipeline_rendering_info,
-        .flags = 0,
-
-        // Shader stages
-        .stageCount = 2,
-        .pStages = stage_infos,
-
-        // Fixed pipeline
-        .pVertexInputState = &vertex_input_info,
-        .pInputAssemblyState = &input_ass_info,
-        .pViewportState = &viewport_state_info,
-        .pRasterizationState = &rasterizer_info,
-        .pMultisampleState = &multisampling_info,
-        .pDepthStencilState = NULL,
-        .pColorBlendState = &color_blending_info,
-        .pDynamicState = NULL,
-
-        // Layout
-        .layout = ctx->pipeline_lyt,
-
-        // Renderpass
-        .renderPass = NULL,
-        .subpass = 0,
-
-        // For graphics pipeline derivation
-        .basePipelineHandle = VK_NULL_HANDLE,
-        .basePipelineIndex = -1
-    };
-
-    if (vkCreateGraphicsPipelines(ctx->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ctx->graphics_pipeline) != VK_SUCCESS) {
-        printf("Failed to create graphics pipeline.");
-        return 1;
-    }
-
-    vkDestroyShaderModule(ctx->device, frag_module, NULL);
-    vkDestroyShaderModule(ctx->device, vert_module, NULL);
-
-    return 0;
-}
-
-
 void transition_image_layout(
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
@@ -310,6 +69,8 @@ void transition_image_layout(
 void record_cmd_buf(
     lvContext *ctx,
     lvSwapchain *swapchain,
+    lvRefArray *graphics_buffers,
+    lvGraphicsPipeline *graphics_pipeline,
     VkCommandBuffer cmd_buf,
     uint32_t image_idx
 ) {
@@ -366,10 +127,20 @@ void record_cmd_buf(
 
     vkCmdBeginRendering(cmd_buf, &rendering_info);
 
-    vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx->graphics_pipeline);
+    vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline->pipeline);
 
-    VkDeviceSize offsets[] = {0, };
-    vkCmdBindVertexBuffers(cmd_buf, 0, 1, &ctx->vertex_buffer, offsets); 
+
+    lvArray vk_buffers = lvArray_new(sizeof(VkBuffer));
+    for (size_t i = 0; i < graphics_buffers->size; i++) {
+        lvBuffer *buf = graphics_buffers->data[i];
+
+        lvArray_add(&vk_buffers, &(buf->_buffer));
+    }
+
+    VkDeviceSize offsets[] = {0, 0};
+    vkCmdBindVertexBuffers(cmd_buf, 0, graphics_buffers->size, (VkBuffer *)vk_buffers.data, offsets);
+
+    lvArray_free(&vk_buffers);
 
     // TODO: Use vertices buffer length here
     vkCmdDraw(cmd_buf, 3, 1, 0, 0);
@@ -430,10 +201,6 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create swapchain.");
     }
 
-    if (create_graphics_pipeline(&ctx, &swapchain) != 0) {
-        lv_fatal("Failed to create graphics pipeline.");
-    }
-
 
     // COMMAND BUFFERS
 
@@ -465,49 +232,64 @@ int main(int argc, char *argv[]) {
     }
 
 
-    VkBufferCreateInfo bufferInfo = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .size = sizeof(Vertex) * 3,
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    vec2 vertices[3] = {
+        { 0.0f, -0.5f },
+        { 0.5f, 0.5f },
+        { -0.5f, 0.5f }
     };
 
-    VmaAllocationCreateInfo allocInfo = {
-        .usage = VMA_MEMORY_USAGE_AUTO,
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT 
+    lvBuffer vertex_buffer = {
+        .location = 0,
+        .format = VK_FORMAT_R32G32_SFLOAT,
+        .stride = sizeof(vec2),
     };
-
-    // VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-    // This flag ^ means it will be written sequentally, NEVER READ
-
-    VmaAllocation allocation;
-    if (vmaCreateBuffer(ctx.allocator, &bufferInfo, &allocInfo, &ctx.vertex_buffer, &allocation, NULL) != VK_SUCCESS) {
-        lv_fatal("Failed to create vertex buffer.");
+    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec2) * 3) != 0) {
+        lv_fatal("Buffer creation failed.");
     }
 
-    Vertex vertices[3] = {
-        {
-            .position = { 0.0f, -0.5f },
-            .color    = { 1.0f, 0.0f, 0.0f, 1.0f }
-        },
-        {
-            .position = { 0.5f, 0.5f },
-            .color    = { 0.0f, 1.0f, 0.0f, 1.0f }
-        },
-        {
-            .position = { -0.5f, 0.5f },
-            .color    = { 0.0f, 0.0f, 1.0f, 1.0f }
-        }
-    };
-
-    void *buffer_data;
-    if (vmaMapMemory(ctx.allocator, allocation, &buffer_data) != VK_SUCCESS) {
+    void *vertex_buffer_data;
+    if (vmaMapMemory(ctx.allocator, vertex_buffer._allocation, &vertex_buffer_data) != VK_SUCCESS) {
         lv_fatal("Memory mapping failed.");
     }
-    memcpy(buffer_data, vertices, sizeof(Vertex) * 3);
-    vmaUnmapMemory(ctx.allocator, allocation);
+    memcpy(vertex_buffer_data, vertices, sizeof(vec2) * 3);
+    vmaUnmapMemory(ctx.allocator, vertex_buffer._allocation);
+
+
+
+    vec4 colors[3] = {
+        { 1.0f, 0.0f, 0.0f, 1.0f },
+        { 0.0f, 1.0f, 0.0f, 1.0f },
+        { 0.0f, 0.0f, 1.0f, 1.0f }
+    };
+
+    lvBuffer color_buffer = {
+        .location = 1,
+        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .stride = sizeof(vec4),
+    };
+    if (lvBuffer_init(&color_buffer, &ctx, sizeof(vec4) * 3) != 0) {
+        lv_fatal("Buffer creation failed.");
+    }
+
+    void *color_buffer_data;
+    if (vmaMapMemory(ctx.allocator, color_buffer._allocation, &color_buffer_data) != VK_SUCCESS) {
+        lv_fatal("Memory mapping failed.");
+    }
+    memcpy(color_buffer_data, colors, sizeof(vec4) * 3);
+    vmaUnmapMemory(ctx.allocator, color_buffer._allocation);
+
+
+    lvRefArray graphics_buffers = lvRefArray_new();
+    lvRefArray_add(&graphics_buffers, &vertex_buffer);
+    lvRefArray_add(&graphics_buffers, &color_buffer);
+
+    lvGraphicsPipeline graphics_pipeline;
+    if (lvGraphicsPipeline_init(&graphics_pipeline, &ctx, 0, "../shaders/first.vert.spv", "../shaders/first.frag.spv", &graphics_buffers) != 0) {
+        lv_fatal("Failed to create graphics pipeline.");
+    }
+
+    // LEAK:
+    //lvRefArray_free(&graphics_buffers);
 
 
     lvClock clock = lvClock_new();
@@ -566,6 +348,8 @@ int main(int argc, char *argv[]) {
         record_cmd_buf(
             &ctx,
             &swapchain,
+            &graphics_buffers,
+            &graphics_pipeline,
             cmd_buf,
             image_idx
         );
@@ -614,14 +398,13 @@ int main(int argc, char *argv[]) {
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
-    vmaDestroyBuffer(ctx.allocator, ctx.vertex_buffer, allocation);
+    vmaDestroyBuffer(ctx.allocator, vertex_buffer._buffer, vertex_buffer._allocation);
+    vmaDestroyBuffer(ctx.allocator, color_buffer._buffer, color_buffer._allocation);
 
     vkDestroyCommandPool(ctx.device, cmd_pool, NULL);
     lvArray_free(&cmd_bufs);
 
-    vkDestroyPipeline(ctx.device, ctx.graphics_pipeline, NULL);
-
-    vkDestroyPipelineLayout(ctx.device, ctx.pipeline_lyt, NULL);
+    lvGraphicsPipeline_free(&graphics_pipeline, &ctx);
 
     lvContext_free(&ctx);
     SDL_DestroyWindow(window);

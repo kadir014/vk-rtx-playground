@@ -14,6 +14,8 @@
 
 #include "lava/vk/context.h"
 #include "lava/vk/swapchain.h"
+#include "lava/vk/buffer.h"
+#include "lava/vk/graphics_pipeline.h"
 
 
 #endif // LAVA_MAIN_H

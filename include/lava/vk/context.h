@@ -21,13 +21,11 @@ typedef struct {
     VkQueue graphics_q;
     VkQueue present_q;
 
+    VmaAllocator allocator;
+
     lvRefArray swapchains;
 
-    VkPipelineLayout pipeline_lyt;
-    VkPipeline graphics_pipeline;
-
-    VmaAllocator allocator;
-    VkBuffer vertex_buffer;
+    size_t vertex_bindings;
 } lvContext;
 
 int lvContext_init(lvContext *ctx, SDL_Window *window);
