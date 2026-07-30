@@ -37,7 +37,7 @@ void lvRefArray_free(lvRefArray *refarray) {
     LV_FREE(refarray->data);
 }
 
-bool lvRefArray_valid(lvRefArray *refarray) {
+bool lvRefArray_valid(const lvRefArray *refarray) {
     return !(
         !refarray->data ||
         refarray->growth_factor <= 1.0f ||

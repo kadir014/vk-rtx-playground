@@ -76,7 +76,7 @@ void lvArray_free(lvArray *array);
  * @param array Array.
  * @return Whether the state is valid or not.
  */
-bool lvArray_valid(lvArray *array);
+bool lvArray_valid(const lvArray *array);
 
 /**
  * @brief Append new element at the end of the array.

@@ -36,7 +36,7 @@ void lvArray_free(lvArray *array) {
     LV_FREE(array->data);
 }
 
-bool lvArray_valid(lvArray *array) {
+bool lvArray_valid(const lvArray *array) {
     return !(
         !array ||
         !array->data ||

@@ -54,7 +54,7 @@ void lvRefArray_free(lvRefArray *refarray);
  * @param refarray Reference array.
  * @return Whether the state is valid or not.
  */
-bool lvRefArray_valid(lvRefArray *refarray);
+bool lvRefArray_valid(const lvRefArray *refarray);
 
 /**
  * @brief Append new element at the end of the reference array.
