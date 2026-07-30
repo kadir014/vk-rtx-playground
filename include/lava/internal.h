@@ -4,9 +4,18 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
+
+#include <SDL.h>
+#include <SDL_vulkan.h>
+#include <vulkan/vulkan.h>
+#include "vk_mem_alloc.h"
+#include "cglm/cglm.h"
 
 
 #define LV_INVALID_INDEX_ZU (size_t)(-1)
+#define LV_INVALID_INDEX_U64 UINT64_MAX
+#define LV_INVALID_INDEX_U32 UINT32_MAX
 
 
 #ifndef LV_MALLOC

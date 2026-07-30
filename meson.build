@@ -30,10 +30,14 @@ endif
 
 
 lava_src = [
+    'src/lava/core/clock.c',
+    'src/lava/core/io.c',
+
     'src/lava/containers/array.c',
     'src/lava/containers/refarray.c',
-    'src/lava/clock.c',
-    'src/lava/io.c',
+
+    'src/lava/vk/context.c',
+    'src/lava/vk/swapchain.c',
 
     'src/vma_impl.cpp',
 ]

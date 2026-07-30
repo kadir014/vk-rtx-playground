@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "lava/io.h"
+#include "lava/core/io.h"
 
 
 lvFileContent lv_read_file_raw(const char *filepath) {

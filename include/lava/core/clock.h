@@ -1,7 +1,7 @@
 #ifndef LAVA_CLOCK_H
 #define LAVA_CLOCK_H
 
-#include "lava/timer.h"
+#include "lava/core/timer.h"
 
 
 typedef struct {

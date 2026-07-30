@@ -1,5 +1,5 @@
 #include <SDL.h>
-#include "lava/clock.h"
+#include "lava/core/clock.h"
 
 
 /*
