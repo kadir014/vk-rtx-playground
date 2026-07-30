@@ -32,6 +32,7 @@ lava_src = [
     'src/lava/containers/array.c',
     'src/lava/containers/refarray.c',
     'src/lava/clock.c',
+    'src/lava/io.c',
 ]
 
 lava_includes = ['include']

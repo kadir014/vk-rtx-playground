@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -11,66 +10,6 @@
 #include <vulkan/vulkan.h>
 
 #include "lava/lava.h"
-
-
-/**
- * @brief Log fatal message and exit with status code 1.
- * 
- * @param fmt Formatter string for the message
- * @param ... 
- */
-static inline void fatal(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-
-    printf("[FATAL] ");
-    vprintf(fmt, args);
-    printf("\n");
-
-    va_end(args);
-
-    exit(EXIT_FAILURE);
-}
-
-
-typedef struct {
-    size_t length;
-    char *data;
-} FileContent;
-
-FileContent lv_read_file_raw(const char *filepath) {
-    FileContent cont = {.length = 0, .data = NULL};
-
-    FILE *file = fopen(filepath, "rb");
-    if (!file) {
-        //ns_throw_error("Failed to open file.", 0, nsErrorSeverity_ERROR);
-        fatal("Failed to open file at '%s'", filepath);
-        return cont;
-    }
-
-    // Seek to the end & rewind back to determine the file size
-    fseek(file, 0, SEEK_END);
-    size_t length = (size_t)ftell(file);
-    rewind(file);
-
-    char *buffer = LV_MALLOC(length + 1);
-    if (!buffer) {
-        fclose(file);
-        //NS_MEM_CHECK(buffer);
-        fatal("Failed to allocate memory.");
-        return cont;
-    }
-
-    fread(buffer, 1, length, file);
-    // Make sure to null-terminate the content
-    buffer[length] = '\0';
-
-    fclose(file);
-    
-    cont.length = length;
-    cont.data = buffer;
-    return cont;
-}
 
 
 #define INVALID_UINT32_IDX UINT32_MAX
@@ -347,7 +286,7 @@ void validate_physical_device(
 
     // TODO: Better error & memory handling
     if (n_extensions == 0) {
-        fatal("No extension is supported for this physical device.");
+        lv_fatal("No extension is supported for this physical device.");
         return;
     }
 
@@ -386,7 +325,7 @@ void validate_physical_device(
         }
 
         if (!found) {
-            fatal("Requested extensions are not supported on this physical device.");
+            lv_fatal("Requested extensions are not supported on this physical device.");
             return;
         }
     }
@@ -498,7 +437,7 @@ SwapChainSupport get_swap_chain_support(
     );
 
     if (sc.formats.capacity == 0) {
-        fatal("0 formats?");
+        lv_fatal("0 formats?");
         return sc;
     }
 
@@ -519,7 +458,7 @@ SwapChainSupport get_swap_chain_support(
     );
 
     if (sc.present_modes.capacity == 0) {
-        fatal("0 present modes?");
+        lv_fatal("0 present modes?");
         return sc;
     }
 
@@ -681,7 +620,10 @@ int create_swapchain(Context *ctx) {
 
 
 VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
-    FileContent shader_source = lv_read_file_raw(filepath);
+    lvFileContent shader_source = lv_read_file_raw(filepath);
+    if (!shader_source.data) {
+        lv_fatal("Failed to read shader file: %s", filepath);
+    }
 
     // TODO codeSize zero-terminated length mi istiyor (length+1) yoksa normal length mi?
     VkShaderModuleCreateInfo create_info = {
@@ -694,7 +636,7 @@ VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
 
     VkShaderModule shader_module;
     if (vkCreateShaderModule(device, &create_info, NULL, &shader_module) != VK_SUCCESS) {
-        fatal("Failed to create shader module.");
+        lv_fatal("Failed to create shader module.");
     }
 
     LV_FREE(shader_source.data);
@@ -954,7 +896,7 @@ void record_cmd_buf(
     };
 
     if (vkBeginCommandBuffer(cmd_buf, &cmd_begin_info) != VK_SUCCESS) {
-        fatal("Failed to begin recording command buffer.");
+        lv_fatal("Failed to begin recording command buffer.");
     }
 
     // Transition image layout for rendering
@@ -1018,14 +960,14 @@ void record_cmd_buf(
 
     // stop recording
     if (vkEndCommandBuffer(cmd_buf) != VK_SUCCESS) {
-        fatal("Failed to record command buffer (vkEndCommandBuffer)");
+        lv_fatal("Failed to record command buffer (vkEndCommandBuffer)");
     }
 }
 
 
 int main(int argc, char *argv[]) {
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
-	    fatal("SDL initialization error: %s", SDL_GetError());
+	    lv_fatal("SDL initialization error: %s", SDL_GetError());
         exit(EXIT_FAILURE);
 	}
 
@@ -1043,7 +985,7 @@ int main(int argc, char *argv[]) {
         SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_VULKAN
     );
     if (!window) {
-        fatal("Window creation failed: %s", SDL_GetError());
+        lv_fatal("Window creation failed: %s", SDL_GetError());
     }
 
     Context ctx = {
@@ -1057,23 +999,23 @@ int main(int argc, char *argv[]) {
     };
 
     if (create_instance(&ctx, window) != 0) {
-        fatal("Failed to create instance.");
+        lv_fatal("Failed to create instance.");
     }
 
     if (get_physical_device(&ctx) != 0) {
-        fatal("Could not found a GPU on the system with Vulkan support.");
+        lv_fatal("Could not found a GPU on the system with Vulkan support.");
     }
 
     if (create_logical_device(&ctx) != 0) {
-        fatal("Failed to create logical device.");
+        lv_fatal("Failed to create logical device.");
     }
 
     if (create_swapchain(&ctx) != 0) {
-        fatal("Failed to create swapchain.");
+        lv_fatal("Failed to create swapchain.");
     }
 
     if (create_graphics_pipeline(&ctx) != 0) {
-        fatal("Failed to create graphics pipeline.");
+        lv_fatal("Failed to create graphics pipeline.");
     }
 
 
@@ -1087,7 +1029,7 @@ int main(int argc, char *argv[]) {
         .queueFamilyIndex = ctx.families.graphics_idx
     };
     if (vkCreateCommandPool(ctx.device, &cmd_pool_info, NULL, &cmd_pool) != VK_SUCCESS) {
-        fatal("Failed to create graphics command pool.");
+        lv_fatal("Failed to create graphics command pool.");
     }
 
     VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
@@ -1100,7 +1042,7 @@ int main(int argc, char *argv[]) {
     };
 
     if (vkAllocateCommandBuffers(ctx.device, &alloc_info, &cmd_buf) != VK_SUCCESS) {
-        fatal("Failed to allocate command buffer.");
+        lv_fatal("Failed to allocate command buffer.");
     }
 
 
@@ -1127,7 +1069,7 @@ int main(int argc, char *argv[]) {
         vkCreateSemaphore(ctx.device, &sem_info, NULL, &sem_render_finished) != VK_SUCCESS ||
         vkCreateFence(ctx.device, &fen_info, NULL, &fen_in_flight) != VK_SUCCESS
     ) {
-        fatal("Failed to create synchronization structures.");
+        lv_fatal("Failed to create synchronization structures.");
     }
 
 
@@ -1198,7 +1140,7 @@ int main(int argc, char *argv[]) {
         };
 
         if (vkQueueSubmit(ctx.graphics_q, 1, &submit_info, fen_in_flight) != VK_SUCCESS) {
-            fatal("Failed to submit draw command buffer.");
+            lv_fatal("Failed to submit draw command buffer.");
         }
 
 
