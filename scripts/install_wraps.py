@@ -8,8 +8,10 @@ if not os.path.exists("subprojects"):
 
 wraps = [
     "sdl2",
+    "vulkan-memory-allocator",
+    "cglm",
 ]
 
 for wrap in wraps:
-    print(f"Installing wrap: {wrap}")
+    print(f"[WRAP INSTALLER] Installing wrap: {wrap}")
     subprocess.run(f"meson wrap install {wrap}", shell=True)

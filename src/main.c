@@ -8,6 +8,8 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
+#include "vk_mem_alloc.h"
+#include "cglm/cglm.h"
 
 #include "lava/lava.h"
 
@@ -51,6 +53,11 @@ int check_layers(
 
 
 typedef struct {
+    vec2 position;
+    vec4 color;
+} Vertex;
+
+typedef struct {
     uint32_t graphics_idx;
     uint32_t present_idx;
 } QueueFamilies;
@@ -79,6 +86,9 @@ typedef struct {
 
     VkPipelineLayout pipeline_lyt;
     VkPipeline graphics_pipeline;
+
+    VmaAllocator allocator;
+    VkBuffer vertex_buffer;
 } Context;
 
 
@@ -648,6 +658,29 @@ int create_graphics_pipeline(Context *ctx) {
     VkShaderModule frag_module = create_shader_module(ctx->device, "../shaders/first.frag.spv");
 
 
+    // VERTEX BINDING
+
+    VkVertexInputBindingDescription vertex_binding_desc ={
+        .binding = 0,
+        .stride = sizeof(Vertex),
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+    };
+
+    VkVertexInputAttributeDescription vertex_attr_descs[2];
+    vertex_attr_descs[0] = (VkVertexInputAttributeDescription){
+        .binding = 0,
+        .location = 0,
+        .format = VK_FORMAT_R32G32_SFLOAT,
+        .offset = offsetof(Vertex, position)
+    };
+    vertex_attr_descs[1] = (VkVertexInputAttributeDescription){
+        .binding = 0,
+        .location = 1,
+        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .offset = offsetof(Vertex, color)
+    };
+
+
     // FIXED PIPELINE
 
     VkPipelineShaderStageCreateInfo vert_stage_info = {
@@ -673,10 +706,10 @@ int create_graphics_pipeline(Context *ctx) {
     VkPipelineVertexInputStateCreateInfo vertex_input_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext = NULL,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = NULL,
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = NULL,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &vertex_binding_desc,
+        .vertexAttributeDescriptionCount = 2,
+        .pVertexAttributeDescriptions = vertex_attr_descs,
     };
 
     VkPipelineInputAssemblyStateCreateInfo input_ass_info = {
@@ -937,6 +970,11 @@ void record_cmd_buf(
     vkCmdBeginRendering(cmd_buf, &rendering_info);
 
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx->graphics_pipeline);
+
+    VkDeviceSize offsets[] = {0, };
+    vkCmdBindVertexBuffers(cmd_buf, 0, 1, &ctx->vertex_buffer, offsets); 
+
+    // TODO: Use vertices buffer length here
     vkCmdDraw(cmd_buf, 3, 1, 0, 0);
 
     vkCmdEndRendering(cmd_buf);
@@ -1007,6 +1045,18 @@ int main(int argc, char *argv[]) {
     if (create_logical_device(&ctx) != 0) {
         lv_fatal("Failed to create logical device.");
     }
+
+    VmaAllocatorCreateInfo allocator_info = {
+        .physicalDevice = ctx.phydevice,
+        .device = ctx.device,
+        .instance = ctx.inst,
+        // TODO: .vulkanApiVersion = 
+    };
+
+    if (vmaCreateAllocator(&allocator_info, &ctx.allocator) != VK_SUCCESS) {
+        lv_fatal("Failed to create VMA allocator.");
+    }
+
 
     if (create_swapchain(&ctx) != 0) {
         lv_fatal("Failed to create swapchain.");
@@ -1101,6 +1151,51 @@ int main(int argc, char *argv[]) {
         sems_img_available.size,
         sems_render_finished.size
     );
+
+
+    VkBufferCreateInfo bufferInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .size = sizeof(Vertex) * 3,
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo allocInfo = {
+        .usage = VMA_MEMORY_USAGE_AUTO,
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT 
+    };
+
+    // VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+    // This flag ^ means it will be written sequentally, NEVER READ
+
+    VmaAllocation allocation;
+    if (vmaCreateBuffer(ctx.allocator, &bufferInfo, &allocInfo, &ctx.vertex_buffer, &allocation, NULL) != VK_SUCCESS) {
+        lv_fatal("Failed to create vertex buffer.");
+    }
+
+    Vertex vertices[3] = {
+        {
+            .position = { 0.0f, -0.5f },
+            .color    = { 1.0f, 0.0f, 0.0f, 1.0f }
+        },
+        {
+            .position = { 0.5f, 0.5f },
+            .color    = { 0.0f, 1.0f, 0.0f, 1.0f }
+        },
+        {
+            .position = { -0.5f, 0.5f },
+            .color    = { 0.0f, 0.0f, 1.0f, 1.0f }
+        }
+    };
+
+    void *buffer_data;
+    if (vmaMapMemory(ctx.allocator, allocation, &buffer_data) != VK_SUCCESS) {
+        lv_fatal("Memory mapping failed.");
+    }
+    memcpy(buffer_data, vertices, sizeof(Vertex) * 3);
+    vmaUnmapMemory(ctx.allocator, allocation);
 
 
     lvClock clock = lvClock_new();
@@ -1206,6 +1301,8 @@ int main(int argc, char *argv[]) {
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
+    vmaDestroyBuffer(ctx.allocator, ctx.vertex_buffer, allocation);
+
     for (size_t i = 0; i < LV_FRAME_LAG; i++) {
         vkDestroyFence(ctx.device, LV_ARRAY_AT(&fens_in_flight, i, VkFence), NULL);
         vkDestroySemaphore(ctx.device, LV_ARRAY_AT(&sems_img_available, i, VkSemaphore), NULL);
@@ -1231,6 +1328,8 @@ int main(int argc, char *argv[]) {
     lvArray_free(&ctx.swapchain.views);
     
     vkDestroySwapchainKHR(ctx.device, ctx.swapchain.swapchain, NULL);
+
+    vmaDestroyAllocator(ctx.allocator);
     vkDestroyDevice(ctx.device, NULL);
     vkDestroySurfaceKHR(ctx.inst, ctx.surface, NULL);
     vkDestroyInstance(ctx.inst, NULL);

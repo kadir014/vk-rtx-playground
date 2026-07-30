@@ -1,10 +1,11 @@
 project(
     'vk-rtx-playground',
-    ['c',],
+    ['c', 'cpp'],
     license: 'MIT',
     license_files: 'LICENSE',
     default_options: [
         'c_std=c99',
+        'cpp_std=c++11',
         'warning_level=1',
         'default_library=static'
     ],
@@ -33,6 +34,8 @@ lava_src = [
     'src/lava/containers/refarray.c',
     'src/lava/clock.c',
     'src/lava/io.c',
+
+    'src/vma_impl.cpp',
 ]
 
 lava_includes = ['include']
@@ -52,12 +55,14 @@ sdl2_dep = dependency(
 )
 
 vulkan_dep = dependency('vulkan')
+vma_dep = dependency('VulkanMemoryAllocator')
+cglm_dep = dependency('cglm')
 
 if compiler.get_id() == 'msvc'
     sdl2_main_dep = dependency('sdl2main')
-    main_deps = [sdl2_dep, sdl2_main_dep, vulkan_dep]
+    main_deps = [sdl2_dep, sdl2_main_dep, vulkan_dep, vma_dep, cglm_dep]
 else
-    main_deps = [sdl2_dep, vulkan_dep]
+    main_deps = [sdl2_dep, vulkan_dep, vma_dep, cglm_dep]
 endif
 
 executable(
@@ -65,6 +70,7 @@ executable(
     sources: main_src,
     include_directories: lava_includes,
     c_args: c_args,
+    cpp_args: [],
     link_args: link_args,
     dependencies: main_deps,
 )
