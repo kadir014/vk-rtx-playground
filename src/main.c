@@ -14,12 +14,6 @@
 #include "lava/lava.h"
 
 
-typedef struct {
-    vec2 position;
-    vec4 color;
-} Vertex;
-
-
 void transition_image_layout(
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
@@ -71,8 +65,10 @@ void record_cmd_buf(
     lvSwapchain *swapchain,
     lvRefArray *graphics_buffers,
     lvGraphicsPipeline *graphics_pipeline,
+    lvBuffer index_buffer,
     VkCommandBuffer cmd_buf,
-    uint32_t image_idx
+    uint32_t image_idx,
+    uint32_t frame_idx_sync
 ) {
     // begin recording
     VkCommandBufferBeginInfo cmd_begin_info = {
@@ -137,13 +133,28 @@ void record_cmd_buf(
         lvArray_add(&vk_buffers, &(buf->_buffer));
     }
 
-    VkDeviceSize offsets[] = {0, 0};
+    VkDeviceSize offsets[] = {0, 0, 0};
     vkCmdBindVertexBuffers(cmd_buf, 0, graphics_buffers->size, (VkBuffer *)vk_buffers.data, offsets);
+
+    vkCmdBindIndexBuffer(cmd_buf, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
 
     lvArray_free(&vk_buffers);
 
+    vkCmdBindDescriptorSets(
+        cmd_buf,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        graphics_pipeline->layout,
+        0,
+        1,
+        LV_ARRAY_PTR_AT(&graphics_pipeline->desc_sets, frame_idx_sync, VkDescriptorSet),
+        0,
+        NULL
+    );
+
     // TODO: Use vertices buffer length here
-    vkCmdDraw(cmd_buf, 3, 1, 0, 0);
+    //vkCmdDraw(cmd_buf, 3, 1, 0, 0);
+
+    vkCmdDrawIndexed(cmd_buf, 6, 1, 0, 0, 0);
 
     vkCmdEndRendering(cmd_buf);
 
@@ -165,6 +176,13 @@ void record_cmd_buf(
         lv_fatal("Failed to record command buffer (vkEndCommandBuffer)");
     }
 }
+
+
+typedef struct {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} UniformBuffer;
 
 
 int main(int argc, char *argv[]) {
@@ -232,10 +250,11 @@ int main(int argc, char *argv[]) {
     }
 
 
-    vec2 vertices[3] = {
-        { 0.0f, -0.5f },
-        { 0.5f, 0.5f },
-        { -0.5f, 0.5f }
+    vec2 vertices[4] = {
+        {-0.5f, -0.5f},
+        { 0.5f, -0.5f},
+        { 0.5f,  0.5f},
+        {-0.5f,  0.5f}
     };
 
     lvBuffer vertex_buffer = {
@@ -243,7 +262,7 @@ int main(int argc, char *argv[]) {
         .format = VK_FORMAT_R32G32_SFLOAT,
         .stride = sizeof(vec2),
     };
-    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec2) * 3) != 0) {
+    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec2) * 4) != 0) {
         lv_fatal("Buffer creation failed.");
     }
 
@@ -251,15 +270,15 @@ int main(int argc, char *argv[]) {
     if (vmaMapMemory(ctx.allocator, vertex_buffer._allocation, &vertex_buffer_data) != VK_SUCCESS) {
         lv_fatal("Memory mapping failed.");
     }
-    memcpy(vertex_buffer_data, vertices, sizeof(vec2) * 3);
+    memcpy(vertex_buffer_data, vertices, sizeof(vec2) * 4);
     vmaUnmapMemory(ctx.allocator, vertex_buffer._allocation);
 
 
-
-    vec4 colors[3] = {
+    vec4 colors[4] = {
         { 1.0f, 0.0f, 0.0f, 1.0f },
         { 0.0f, 1.0f, 0.0f, 1.0f },
-        { 0.0f, 0.0f, 1.0f, 1.0f }
+        { 0.0f, 0.0f, 1.0f, 1.0f },
+        { 1.0f, 1.0f, 1.0f, 1.0f }
     };
 
     lvBuffer color_buffer = {
@@ -267,7 +286,7 @@ int main(int argc, char *argv[]) {
         .format = VK_FORMAT_R32G32B32A32_SFLOAT,
         .stride = sizeof(vec4),
     };
-    if (lvBuffer_init(&color_buffer, &ctx, sizeof(vec4) * 3) != 0) {
+    if (lvBuffer_init(&color_buffer, &ctx, sizeof(vec4) * 4) != 0) {
         lv_fatal("Buffer creation failed.");
     }
 
@@ -275,16 +294,143 @@ int main(int argc, char *argv[]) {
     if (vmaMapMemory(ctx.allocator, color_buffer._allocation, &color_buffer_data) != VK_SUCCESS) {
         lv_fatal("Memory mapping failed.");
     }
-    memcpy(color_buffer_data, colors, sizeof(vec4) * 3);
+    memcpy(color_buffer_data, colors, sizeof(vec4) * 4);
     vmaUnmapMemory(ctx.allocator, color_buffer._allocation);
+
+
+    vec2 uvs[4] = {
+        { 0.0f, 0.0f},
+        { 1.0f, 0.0f},
+        { 1.0f, 1.0f},
+        { 0.0f, 1.0f}
+    };
+
+    lvBuffer uv_buffer = {
+        .location = 2,
+        .format = VK_FORMAT_R32G32_SFLOAT,
+        .stride = sizeof(vec2),
+    };
+    if (lvBuffer_init(&uv_buffer, &ctx, sizeof(vec2) * 4) != 0) {
+        lv_fatal("Buffer creation failed.");
+    }
+
+    void *uv_buffer_data;
+    if (vmaMapMemory(ctx.allocator, uv_buffer._allocation, &uv_buffer_data) != VK_SUCCESS) {
+        lv_fatal("Memory mapping failed.");
+    }
+    memcpy(uv_buffer_data, uvs, sizeof(vec2) * 4);
+    vmaUnmapMemory(ctx.allocator, uv_buffer._allocation);
+
+
+    uint32_t indices[6] = {
+        0, 1, 2,
+        2, 3, 0
+    };
+
+    lvBuffer index_buffer = {0};
+
+    VkBufferCreateInfo index_buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .size = sizeof(uint32_t) * 6,
+        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo index_buffer_alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO,
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT 
+    };
+
+    if (vmaCreateBuffer(ctx.allocator, &index_buffer_info, &index_buffer_alloc_info, &index_buffer._buffer, &index_buffer._allocation, NULL) != VK_SUCCESS) {
+        lv_fatal("Failed to create index buffer.");
+    }
+
+    void *index_buffer_data;
+    if (vmaMapMemory(ctx.allocator, index_buffer._allocation, &index_buffer_data) != VK_SUCCESS) {
+        lv_fatal("Memory mapping failed.");
+    }
+    memcpy(index_buffer_data, indices, sizeof(uint32_t) * 6);
+    vmaUnmapMemory(ctx.allocator, index_buffer._allocation);
+
+
+    VkDescriptorSetLayoutBinding ubo_lyt_binding = {
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = NULL
+    };
+
+    lvArray uniforms = lvArray_new(sizeof(lvBuffer));
+    lvRefArray uniform_mappings = lvRefArray_new();
+
+    uniforms.size = frame_lag;
+    uniform_mappings.size = frame_lag;
+    lvArray_resize(&uniforms);
+    lvRefArray_resize(&uniform_mappings);
+
+    for (size_t i = 0; i < frame_lag; i++) {
+        VkBufferCreateInfo uniform_buffer_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .size = sizeof(UniformBuffer),
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+
+        // Uniform buffers can be read, written and accessed in random order
+        // But maybe choose sequential write for speed
+        VmaAllocationCreateInfo uniform_buffer_alloc_info = {
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT 
+        };
+
+        if (
+            vmaCreateBuffer(
+                ctx.allocator,
+                &uniform_buffer_info,
+                &uniform_buffer_alloc_info,
+                &(LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_buffer),
+                &(LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation),
+                NULL
+            ) != VK_SUCCESS
+        ) {
+            lv_fatal("Failed to create uniform buffer.");
+        }
+
+        vmaMapMemory(
+            ctx.allocator,
+            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation,
+            uniform_mappings.data + i
+        );
+    }
+
 
 
     lvRefArray graphics_buffers = lvRefArray_new();
     lvRefArray_add(&graphics_buffers, &vertex_buffer);
     lvRefArray_add(&graphics_buffers, &color_buffer);
+    lvRefArray_add(&graphics_buffers, &uv_buffer);
+
+    lvArray desc_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
+    lvArray_add(&desc_bindings, &ubo_lyt_binding);
 
     lvGraphicsPipeline graphics_pipeline;
-    if (lvGraphicsPipeline_init(&graphics_pipeline, &ctx, 0, "../shaders/first.vert.spv", "../shaders/first.frag.spv", &graphics_buffers) != 0) {
+    if (
+        lvGraphicsPipeline_init(
+            &graphics_pipeline,
+            &ctx,
+            0,
+            "../shaders/first.vert.spv",
+            "../shaders/first.frag.spv",
+            &graphics_buffers,
+            &uniforms,
+            &desc_bindings
+        ) != 0
+    ) {
         lv_fatal("Failed to create graphics pipeline.");
     }
 
@@ -293,6 +439,9 @@ int main(int argc, char *argv[]) {
 
 
     lvClock clock = lvClock_new();
+
+    lvPrecisionTimer timer;
+    lvPrecisionTimer_start(&timer);
 
     // Frame index used by the synchronization structures
     size_t frame_idx_sync = 0;
@@ -350,8 +499,10 @@ int main(int argc, char *argv[]) {
             &swapchain,
             &graphics_buffers,
             &graphics_pipeline,
+            index_buffer,
             cmd_buf,
-            image_idx
+            image_idx,
+            frame_idx_sync
         );
 
         VkSemaphore sem_render_finished = LV_ARRAY_AT(&swapchain.sem_present, image_idx, VkSemaphore);
@@ -373,6 +524,34 @@ int main(int argc, char *argv[]) {
         if (vkQueueSubmit(ctx.graphics_q, 1, &submit_info, curr_fen) != VK_SUCCESS) {
             lv_fatal("Failed to submit draw command buffer.");
         }
+
+
+        // UPDATE UNIFORMS
+
+        UniformBuffer ubo = {
+            GLM_MAT4_IDENTITY_INIT,
+            GLM_MAT4_IDENTITY_INIT,
+            GLM_MAT4_IDENTITY_INIT
+        };
+
+        float time = (float)lvPrecisionTimer_stop(&timer);
+
+        glm_rotate(
+            ubo.model,
+            glm_rad(time * 90.0f),
+            (vec3){0.0f, 0.0f, 1.0f}
+        );
+        glm_lookat((vec3){2.0f, 2.0f, 2.0f}, (vec3){0.0f, 0.0f, 0.0f}, (vec3){0.0f, 0.0f, 1.0f}, ubo.view);
+        glm_perspective(
+            45.0f * 0.0174533f,
+            (float)swapchain.extent.width / (float)swapchain.extent.height,
+            0.1f,
+            1000.0f,
+            ubo.proj
+        );
+        ubo.proj[1][1] *= -1.0f;
+
+        memcpy(uniform_mappings.data[frame_idx_sync], &ubo, sizeof(ubo));
 
 
         // PRESENT FRAME
@@ -398,8 +577,22 @@ int main(int argc, char *argv[]) {
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
+    for (size_t i = 0; i < frame_lag; i++) {
+        vmaUnmapMemory(ctx.allocator, LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation);
+
+        vmaDestroyBuffer(
+            ctx.allocator,
+            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_buffer,
+            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation
+        );
+    }
+    lvArray_free(&uniforms);
+    lvRefArray_free(&uniform_mappings);
+
+    vmaDestroyBuffer(ctx.allocator, index_buffer._buffer, index_buffer._allocation);
     vmaDestroyBuffer(ctx.allocator, vertex_buffer._buffer, vertex_buffer._allocation);
     vmaDestroyBuffer(ctx.allocator, color_buffer._buffer, color_buffer._allocation);
+    vmaDestroyBuffer(ctx.allocator, uv_buffer._buffer, uv_buffer._allocation);
 
     vkDestroyCommandPool(ctx.device, cmd_pool, NULL);
     lvArray_free(&cmd_bufs);

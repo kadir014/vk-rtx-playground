@@ -151,3 +151,29 @@ lvRefArray lvRefArray_copy(lvRefArray *refarray) {
 
     return copy;
 }
+
+int lvRefArray_resize(lvRefArray *refarray) {
+    if (!refarray) {
+        return 2;
+    }
+
+    if (refarray->size == refarray->capacity) {
+        return 0;
+    }
+
+    size_t new_capacity = refarray->size;
+
+    void **new_data = LV_REALLOC(
+        refarray->data,
+        new_capacity * sizeof(void *)
+    );
+
+    if (!new_data) {
+        return 1;
+    }
+
+    refarray->capacity = new_capacity;
+    refarray->data = new_data;
+
+    return 0;
+}

@@ -121,5 +121,17 @@ void lvRefArray_for_each(
  */
 lvRefArray lvRefArray_copy(lvRefArray *refarray);
 
+/**
+ * @brief Synchronize the reserved space with current size.
+ * 
+ * Use this function only if you manually updated the `size` member.
+ * 
+ * @param refarray Reference rray.
+ * @return `0` if successful.
+ *         `1` if failed to rallocate.
+ *         `2` if array is invalid.
+ */
+int lvRefArray_resize(lvRefArray *refarray);
+
 
 #endif // LAVA_REFARRAY_H

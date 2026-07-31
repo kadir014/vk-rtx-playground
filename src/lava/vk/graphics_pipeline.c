@@ -40,7 +40,9 @@ int lvGraphicsPipeline_init(
     size_t swapchain_idx,
     const char *vertex_shader_filepath,
     const char *fragment_shader_filepath,
-    lvRefArray *buffers
+    lvRefArray *buffers,
+    lvArray *uniforms,
+    lvArray *descriptor_bindings
 ) {
     // SHADERS
 
@@ -164,7 +166,7 @@ int lvGraphicsPipeline_init(
         .polygonMode = VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0f,
         .cullMode = VK_CULL_MODE_BACK_BIT,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .depthBiasConstantFactor = 0.0f,
         .depthBiasClamp = 0.0f,
@@ -208,12 +210,94 @@ int lvGraphicsPipeline_init(
     color_blending_info.blendConstants[2] = 0.0f;
     color_blending_info.blendConstants[3] = 0.0f;
 
+
+    // DESCRIPTORS & LAYOUTS
+
+    const uint32_t frame_lag = 2;
+
+    VkDescriptorPoolSize desc_pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = frame_lag
+    };
+
+    VkDescriptorSetLayoutCreateInfo descriptor_set_lyt_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .bindingCount = descriptor_bindings->size,
+        .pBindings = (VkDescriptorSetLayoutBinding *)descriptor_bindings->data
+    };
+
+    if (vkCreateDescriptorSetLayout(ctx->device, &descriptor_set_lyt_info, NULL, &pipeline->set_lyt) != VK_SUCCESS) {
+        printf("Failed to create descriptor set layout.\n");
+        return 1;
+    }
+
+    VkDescriptorPoolCreateInfo desc_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .poolSizeCount = 1,
+        .pPoolSizes = &desc_pool_size,
+        .maxSets = frame_lag
+    };
+
+    if (vkCreateDescriptorPool(ctx->device, &desc_pool_info, NULL, &pipeline->desc_pool) != VK_SUCCESS) {
+        printf("Failed to create descriptor pool.\n");
+        return 1;
+    }
+
+    lvArray desc_layouts = lvArray_new(sizeof(VkDescriptorSetLayout));
+    for (size_t i = 0; i < frame_lag; i++) {
+        lvArray_add(&desc_layouts, &pipeline->set_lyt);
+    }
+
+    VkDescriptorSetAllocateInfo desc_set_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = NULL,
+        .descriptorPool = pipeline->desc_pool,
+        .descriptorSetCount = frame_lag,
+        .pSetLayouts = (VkDescriptorSetLayout *)desc_layouts.data
+    };
+
+    pipeline->desc_sets = lvArray_new(sizeof(VkDescriptorSet));
+    pipeline->desc_sets.size = frame_lag;
+    lvArray_resize(&pipeline->desc_sets);
+
+    if (vkAllocateDescriptorSets(ctx->device, &desc_set_alloc_info, (VkDescriptorSet *)pipeline->desc_sets.data) != VK_SUCCESS) {
+        printf("Failed to allocate descriptior set.\n");
+        return 1;
+    }
+
+    for (size_t i = 0; i < frame_lag; i++) {
+        VkDescriptorBufferInfo desc_buffer_info = {
+            .buffer = LV_ARRAY_PTR_AT(uniforms, i, lvBuffer)->_buffer,
+            .offset = 0,
+            .range = VK_WHOLE_SIZE
+        };
+
+        VkWriteDescriptorSet desc_write = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = NULL,
+            .dstSet = LV_ARRAY_AT(&pipeline->desc_sets, i, VkDescriptorSet),
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .pBufferInfo = &desc_buffer_info,
+            .pImageInfo = NULL,
+            .pTexelBufferView = NULL
+        };
+
+        vkUpdateDescriptorSets(ctx->device, 1, &desc_write, 0, NULL);
+    }
+
     VkPipelineLayoutCreateInfo pipeline_lyt_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = NULL,
         .flags = 0,
-        .setLayoutCount = 0,
-        .pSetLayouts = NULL,
+        .setLayoutCount = 1,
+        .pSetLayouts = &pipeline->set_lyt,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = NULL
     };
@@ -281,6 +365,9 @@ int lvGraphicsPipeline_init(
 void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx) {
     if (!pipeline) return;
 
+    lvArray_free(&pipeline->desc_sets);
+    vkDestroyDescriptorPool(ctx->device, pipeline->desc_pool, NULL);
+    vkDestroyDescriptorSetLayout(ctx->device, pipeline->set_lyt, NULL);
     vkDestroyPipelineLayout(ctx->device, pipeline->layout, NULL);
     vkDestroyPipeline(ctx->device, pipeline->pipeline, NULL);
 }
