@@ -21,6 +21,8 @@ typedef struct {
     VkQueue graphics_q;
     VkQueue present_q;
 
+    VkCommandPool cmd_pool;
+
     VmaAllocator allocator;
 
     lvRefArray swapchains;

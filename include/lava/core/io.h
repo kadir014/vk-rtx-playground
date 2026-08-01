@@ -12,7 +12,9 @@ typedef struct {
 /**
  * @brief Read raw binary content from file.
  * 
- * lvFileContent.data is `NULL` if failed.
+ * `lvFileContent.data` is `NULL` if failed.
+ * 
+ * It's caller's responsibility to free `lvFileContent.data`.
  * 
  * @param filepath Path to file.
  * @return lvFileContent

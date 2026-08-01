@@ -12,6 +12,8 @@
 #include "lava/containers/array.h"
 #include "lava/containers/refarray.h"
 
+#include "lava/loaders/obj.h"
+
 #include "lava/vk/context.h"
 #include "lava/vk/swapchain.h"
 #include "lava/vk/buffer.h"

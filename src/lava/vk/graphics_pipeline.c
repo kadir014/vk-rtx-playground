@@ -42,7 +42,9 @@ int lvGraphicsPipeline_init(
     const char *fragment_shader_filepath,
     lvRefArray *buffers,
     lvArray *uniforms,
-    lvArray *descriptor_bindings
+    lvArray *descriptor_bindings,
+    VkImageView texture_view,
+    VkSampler texture_sampler
 ) {
     // SHADERS
 
@@ -215,10 +217,32 @@ int lvGraphicsPipeline_init(
 
     const uint32_t frame_lag = 2;
 
-    VkDescriptorPoolSize desc_pool_size = {
+    #define N_DESC_POOL_SIZES 2
+    VkDescriptorPoolSize desc_pool_sizes[N_DESC_POOL_SIZES];
+    
+    desc_pool_sizes[0] = (VkDescriptorPoolSize){
         .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         .descriptorCount = frame_lag
     };
+
+    desc_pool_sizes[1] = (VkDescriptorPoolSize){
+        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = frame_lag
+    };
+
+    VkDescriptorPoolCreateInfo desc_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .poolSizeCount = N_DESC_POOL_SIZES,
+        .pPoolSizes = desc_pool_sizes,
+        .maxSets = frame_lag
+    };
+
+    if (vkCreateDescriptorPool(ctx->device, &desc_pool_info, NULL, &pipeline->desc_pool) != VK_SUCCESS) {
+        printf("Failed to create descriptor pool.\n");
+        return 1;
+    }
 
     VkDescriptorSetLayoutCreateInfo descriptor_set_lyt_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -230,20 +254,6 @@ int lvGraphicsPipeline_init(
 
     if (vkCreateDescriptorSetLayout(ctx->device, &descriptor_set_lyt_info, NULL, &pipeline->set_lyt) != VK_SUCCESS) {
         printf("Failed to create descriptor set layout.\n");
-        return 1;
-    }
-
-    VkDescriptorPoolCreateInfo desc_pool_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .poolSizeCount = 1,
-        .pPoolSizes = &desc_pool_size,
-        .maxSets = frame_lag
-    };
-
-    if (vkCreateDescriptorPool(ctx->device, &desc_pool_info, NULL, &pipeline->desc_pool) != VK_SUCCESS) {
-        printf("Failed to create descriptor pool.\n");
         return 1;
     }
 
@@ -276,7 +286,15 @@ int lvGraphicsPipeline_init(
             .range = VK_WHOLE_SIZE
         };
 
-        VkWriteDescriptorSet desc_write = {
+        VkDescriptorImageInfo desc_image_info = {
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .imageView = texture_view,
+            .sampler = texture_sampler
+        };
+
+        VkWriteDescriptorSet desc_writes[2];
+        
+        desc_writes[0] = (VkWriteDescriptorSet){
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = NULL,
             .dstSet = LV_ARRAY_AT(&pipeline->desc_sets, i, VkDescriptorSet),
@@ -289,7 +307,20 @@ int lvGraphicsPipeline_init(
             .pTexelBufferView = NULL
         };
 
-        vkUpdateDescriptorSets(ctx->device, 1, &desc_write, 0, NULL);
+        desc_writes[1] = (VkWriteDescriptorSet){
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = NULL,
+            .dstSet = LV_ARRAY_AT(&pipeline->desc_sets, i, VkDescriptorSet),
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .pBufferInfo = NULL,
+            .pImageInfo = &desc_image_info,
+            .pTexelBufferView = NULL
+        };
+
+        vkUpdateDescriptorSets(ctx->device, 2, desc_writes, 0, NULL);
     }
 
     VkPipelineLayoutCreateInfo pipeline_lyt_info = {

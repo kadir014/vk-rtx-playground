@@ -6,6 +6,7 @@
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include <SDL_image.h>
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
@@ -14,10 +15,53 @@
 #include "lava/lava.h"
 
 
+VkCommandBuffer begin_single_time_cmd(lvContext *ctx) {
+    VkCommandBufferAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool = ctx->cmd_pool,
+        .commandBufferCount = 1
+    };
+
+    VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+    vkAllocateCommandBuffers(ctx->device, &alloc_info, &cmd_buf);
+
+    VkCommandBufferBeginInfo begin_info = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .pNext = NULL,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+
+    vkBeginCommandBuffer(cmd_buf, &begin_info);
+
+    return cmd_buf;
+}
+
+void end_single_time_cmd(lvContext *ctx, VkCommandBuffer cmd_buf) {
+    // TODO VK_RESULT CHECKS
+    vkEndCommandBuffer(cmd_buf);
+
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext = NULL,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd_buf
+    };
+
+    vkQueueSubmit(ctx->graphics_q, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(ctx->graphics_q);
+
+    // Command buffers are usually freed with memory pool, but this buffer
+    // is created every time a "single time" buffer is requested, so better
+    // cleanup ourselves.
+    vkFreeCommandBuffers(ctx->device, ctx->cmd_pool, 1, &cmd_buf);
+}
+
+
 void transition_image_layout(
     VkCommandBuffer cmd_buf,
-    uint32_t image_idx,
-    VkImage *swapchain_images,
+    VkImage image,
     VkImageLayout old_layout,
     VkImageLayout new_layout,
     VkAccessFlags2 src_access_mask,
@@ -38,7 +82,7 @@ void transition_image_layout(
         .newLayout = new_layout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = swapchain_images[image_idx],
+        .image = image,
         .subresourceRange = {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
@@ -53,10 +97,36 @@ void transition_image_layout(
         .pNext = NULL,
         //.dependencyFlags = {},
         .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrier
+        .pImageMemoryBarriers = &barrier,
     };
 
 	vkCmdPipelineBarrier2(cmd_buf, &dependency_info);
+}
+
+void transition_image_layout_single_cmd(
+    lvContext *ctx,
+    VkImage image,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    VkAccessFlags2 src_access_mask,
+    VkAccessFlags2 dst_access_mask,
+    VkPipelineStageFlags2 src_stage_mask,
+    VkPipelineStageFlags2 dst_stage_mask
+) {
+    VkCommandBuffer cmd_buf = begin_single_time_cmd(ctx);
+
+    transition_image_layout(
+        cmd_buf,
+        image,
+        old_layout,
+        new_layout,
+        src_access_mask,
+        dst_access_mask,
+        src_stage_mask,
+        dst_stage_mask
+    );
+
+    end_single_time_cmd(ctx, cmd_buf);
 }
 
 
@@ -65,6 +135,7 @@ void record_cmd_buf(
     lvSwapchain *swapchain,
     lvRefArray *graphics_buffers,
     lvGraphicsPipeline *graphics_pipeline,
+    size_t n_verts,
     lvBuffer index_buffer,
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
@@ -74,7 +145,7 @@ void record_cmd_buf(
     VkCommandBufferBeginInfo cmd_begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .pNext = NULL,
-        .flags = 0,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         .pInheritanceInfo = NULL,
     };
 
@@ -83,10 +154,10 @@ void record_cmd_buf(
     }
 
     // Transition image layout for rendering
+    // Old layout is undefined because previous data is not important, we are going to draw over it anyway
     transition_image_layout(
         cmd_buf,
-        image_idx,
-        (VkImage *)(swapchain->images.data),
+        LV_ARRAY_AT(&swapchain->images, image_idx, VkImage),
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_ACCESS_2_NONE,
@@ -136,7 +207,7 @@ void record_cmd_buf(
     VkDeviceSize offsets[] = {0, 0, 0};
     vkCmdBindVertexBuffers(cmd_buf, 0, graphics_buffers->size, (VkBuffer *)vk_buffers.data, offsets);
 
-    vkCmdBindIndexBuffer(cmd_buf, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
+    //vkCmdBindIndexBuffer(cmd_buf, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
 
     lvArray_free(&vk_buffers);
 
@@ -152,17 +223,16 @@ void record_cmd_buf(
     );
 
     // TODO: Use vertices buffer length here
-    //vkCmdDraw(cmd_buf, 3, 1, 0, 0);
+    vkCmdDraw(cmd_buf, n_verts, 1, 0, 0);
 
-    vkCmdDrawIndexed(cmd_buf, 6, 1, 0, 0, 0);
+    //vkCmdDrawIndexed(cmd_buf, 6, 1, 0, 0, 0);
 
     vkCmdEndRendering(cmd_buf);
 
     // Transition image layout for presentation
     transition_image_layout(
         cmd_buf,
-        image_idx,
-        (VkImage *)(swapchain->images.data),
+        LV_ARRAY_AT(&swapchain->images, image_idx, VkImage),
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
@@ -177,6 +247,34 @@ void record_cmd_buf(
     }
 }
 
+// Assumes image is transitioned to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+void copy_buffer_to_image(lvContext *ctx, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+    VkCommandBuffer cmd_buf = begin_single_time_cmd(ctx);
+
+    VkBufferImageCopy region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1},
+        .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .imageSubresource.mipLevel = 0,
+        .imageSubresource.baseArrayLayer = 0,
+        .imageSubresource.layerCount = 1
+    };
+
+    vkCmdCopyBufferToImage(
+        cmd_buf,
+        buffer,
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &region
+    );
+
+    end_single_time_cmd(ctx, cmd_buf);
+}
+
 
 typedef struct {
     mat4 model;
@@ -188,8 +286,11 @@ typedef struct {
 int main(int argc, char *argv[]) {
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
 	    lv_fatal("SDL initialization error: %s", SDL_GetError());
-        exit(EXIT_FAILURE);
 	}
+
+    if (IMG_Init(IMG_INIT_PNG) != IMG_INIT_PNG) {
+        lv_fatal("SDL_image initialization error: %s", IMG_GetError());
+    }
 
     SDL_Vulkan_LoadLibrary(NULL);
 
@@ -222,14 +323,13 @@ int main(int argc, char *argv[]) {
 
     // COMMAND BUFFERS
 
-    VkCommandPool cmd_pool = VK_NULL_HANDLE;
     VkCommandPoolCreateInfo cmd_pool_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .pNext = NULL,
         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
         .queueFamilyIndex = ctx.families.graphics_idx
     };
-    if (vkCreateCommandPool(ctx.device, &cmd_pool_info, NULL, &cmd_pool) != VK_SUCCESS) {
+    if (vkCreateCommandPool(ctx.device, &cmd_pool_info, NULL, &ctx.cmd_pool) != VK_SUCCESS) {
         lv_fatal("Failed to create graphics command pool.");
     }
 
@@ -240,7 +340,7 @@ int main(int argc, char *argv[]) {
     VkCommandBufferAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = NULL,
-        .commandPool = cmd_pool,
+        .commandPool = ctx.cmd_pool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = frame_lag
     };
@@ -250,19 +350,41 @@ int main(int argc, char *argv[]) {
     }
 
 
-    vec2 vertices[4] = {
-        {-0.5f, -0.5f},
-        { 0.5f, -0.5f},
-        { 0.5f,  0.5f},
-        {-0.5f,  0.5f}
-    };
+    lvOBJ obj = lvOBJ_load("../assets/models/plane.obj");
+    if (!obj.loaded) {
+        lv_fatal("Failed to load obj file.");
+    }
+    printf("Loaded obj with %zu triangles.\n", obj.mesh.tris.size);
+
+    size_t n_verts = obj.mesh.tris.size * 3;
+
+
+    // n_verts = 3;
+    // vec3 vertices[3] = {
+    //     {-0.5f, -0.5f, 0.0f},
+    //     { 0.5f, -0.5f, 0.0f},
+    //     { 0.5f,  0.5f, 0.0f}
+    // };
+
+    vec3 *vertices = malloc(sizeof(vec3) * n_verts);
+    size_t j = 0;
+    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
+        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
+
+        for (size_t i = 0; i < 3; i++) {
+            vertices[j][0] = tri.vertices[i].x;
+            vertices[j][1] = tri.vertices[i].y;
+            vertices[j][2] = tri.vertices[i].z;
+            j += 1;
+        }
+    }
 
     lvBuffer vertex_buffer = {
         .location = 0,
-        .format = VK_FORMAT_R32G32_SFLOAT,
-        .stride = sizeof(vec2),
+        .format = VK_FORMAT_R32G32B32_SFLOAT,
+        .stride = sizeof(vec3),
     };
-    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec2) * 4) != 0) {
+    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec3) * n_verts) != 0) {
         lv_fatal("Buffer creation failed.");
     }
 
@@ -270,47 +392,30 @@ int main(int argc, char *argv[]) {
     if (vmaMapMemory(ctx.allocator, vertex_buffer._allocation, &vertex_buffer_data) != VK_SUCCESS) {
         lv_fatal("Memory mapping failed.");
     }
-    memcpy(vertex_buffer_data, vertices, sizeof(vec2) * 4);
+    memcpy(vertex_buffer_data, vertices, sizeof(vec3) * n_verts);
     vmaUnmapMemory(ctx.allocator, vertex_buffer._allocation);
 
+    free(vertices);
 
-    vec4 colors[4] = {
-        { 1.0f, 0.0f, 0.0f, 1.0f },
-        { 0.0f, 1.0f, 0.0f, 1.0f },
-        { 0.0f, 0.0f, 1.0f, 1.0f },
-        { 1.0f, 1.0f, 1.0f, 1.0f }
-    };
 
-    lvBuffer color_buffer = {
-        .location = 1,
-        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-        .stride = sizeof(vec4),
-    };
-    if (lvBuffer_init(&color_buffer, &ctx, sizeof(vec4) * 4) != 0) {
-        lv_fatal("Buffer creation failed.");
+    vec2 *uvs = malloc(sizeof(vec2) * n_verts);
+    j = 0;
+    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
+        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
+
+        for (size_t i = 0; i < 3; i++) {
+            uvs[j][0] = tri.uvs[i].x;
+            uvs[j][1] = tri.uvs[i].y;
+            j += 1;
+        }
     }
-
-    void *color_buffer_data;
-    if (vmaMapMemory(ctx.allocator, color_buffer._allocation, &color_buffer_data) != VK_SUCCESS) {
-        lv_fatal("Memory mapping failed.");
-    }
-    memcpy(color_buffer_data, colors, sizeof(vec4) * 4);
-    vmaUnmapMemory(ctx.allocator, color_buffer._allocation);
-
-
-    vec2 uvs[4] = {
-        { 0.0f, 0.0f},
-        { 1.0f, 0.0f},
-        { 1.0f, 1.0f},
-        { 0.0f, 1.0f}
-    };
 
     lvBuffer uv_buffer = {
-        .location = 2,
+        .location = 1,
         .format = VK_FORMAT_R32G32_SFLOAT,
         .stride = sizeof(vec2),
     };
-    if (lvBuffer_init(&uv_buffer, &ctx, sizeof(vec2) * 4) != 0) {
+    if (lvBuffer_init(&uv_buffer, &ctx, sizeof(vec2) * n_verts) != 0) {
         lv_fatal("Buffer creation failed.");
     }
 
@@ -318,8 +423,42 @@ int main(int argc, char *argv[]) {
     if (vmaMapMemory(ctx.allocator, uv_buffer._allocation, &uv_buffer_data) != VK_SUCCESS) {
         lv_fatal("Memory mapping failed.");
     }
-    memcpy(uv_buffer_data, uvs, sizeof(vec2) * 4);
+    memcpy(uv_buffer_data, uvs, sizeof(vec2) * n_verts);
     vmaUnmapMemory(ctx.allocator, uv_buffer._allocation);
+
+    free(uvs);
+
+
+    vec3 *normals = malloc(sizeof(vec3) * n_verts);
+    j = 0;
+    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
+        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
+
+        for (size_t i = 0; i < 3; i++) {
+            normals[j][0] = tri.normals[i].x;
+            normals[j][1] = tri.normals[i].y;
+            normals[j][2] = tri.normals[i].z;
+            j += 1;
+        }
+    }
+
+    lvBuffer normal_buffer = {
+        .location = 2,
+        .format = VK_FORMAT_R32G32B32_SFLOAT,
+        .stride = sizeof(vec3),
+    };
+    if (lvBuffer_init(&normal_buffer, &ctx, sizeof(vec3) * n_verts) != 0) {
+        lv_fatal("Buffer creation failed.");
+    }
+
+    void *normal_buffer_data;
+    if (vmaMapMemory(ctx.allocator, normal_buffer._allocation, &normal_buffer_data) != VK_SUCCESS) {
+        lv_fatal("Memory mapping failed.");
+    }
+    memcpy(normal_buffer_data, normals, sizeof(vec3) * n_verts);
+    vmaUnmapMemory(ctx.allocator, normal_buffer._allocation);
+
+    free(normals);
 
 
     uint32_t indices[6] = {
@@ -409,14 +548,168 @@ int main(int argc, char *argv[]) {
     }
 
 
+    SDL_Surface *surf = IMG_Load("../assets/textures/statue_2k.png");
+    surf = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_RGBA32, 0);
+    // TODO: Is the previous surface leaked? or freed implicitly?
+    size_t surf_channels = surf->format->BytesPerPixel;
+    uint32_t surf_width = surf->w;
+    uint32_t surf_height = surf->h;
+    size_t surf_size = surf_width * surf_height * surf_channels;
+    lvBuffer texture_staging;
+
+    VkBufferCreateInfo texture_staging_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .size = surf_size,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+
+    VmaAllocationCreateInfo texture_staging_alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO,
+        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+    };
+
+    if (
+        vmaCreateBuffer(
+            ctx.allocator,
+            &texture_staging_info,
+            &texture_staging_alloc_info,
+            &texture_staging._buffer,
+            &texture_staging._allocation,
+            NULL
+        ) != VK_SUCCESS
+    ) {
+        lv_fatal("Failed to create uniform buffer.");
+    }
+
+    void *texture_staging_mapped;
+    vmaMapMemory(
+        ctx.allocator,
+        texture_staging._allocation,
+        &texture_staging_mapped
+    );
+    memcpy(texture_staging_mapped, surf->pixels, surf_size);
+    vmaUnmapMemory(ctx.allocator, texture_staging._allocation);
+
+    SDL_FreeSurface(surf);
+
+    VkImage texture;
+    VmaAllocation texture_alloc;
+
+    VkImageCreateInfo texture_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .extent.width = surf_width,
+        .extent.height = surf_height,
+        .extent.depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = VK_FORMAT_R8G8B8A8_SRGB, // TODO: NOT ALL TYPES ARE SUPPORTED, use vkGetPhysicalDeviceImageFormatProperties
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .samples = VK_SAMPLE_COUNT_1_BIT
+    };
+
+    VmaAllocationCreateInfo texture_alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO
+    };
+
+    if (vmaCreateImage(ctx.allocator, &texture_info, &texture_alloc_info, &texture, &texture_alloc, NULL) != VK_SUCCESS) {
+        lv_fatal("Failed to create texture.");
+    }
+
+    transition_image_layout_single_cmd(
+        &ctx,
+        texture,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_ACCESS_2_NONE,
+        VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT 
+    );
+    copy_buffer_to_image(&ctx, texture_staging._buffer, texture, surf_width, surf_height);
+    transition_image_layout_single_cmd(
+        &ctx,
+        texture,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT 
+    );
+
+    VkImageViewCreateInfo texture_view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .image = texture,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = VK_FORMAT_R8G8B8A8_SRGB,
+        .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .subresourceRange.baseMipLevel = 0,
+        .subresourceRange.levelCount = 1,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.layerCount = 1
+    };
+
+    VkImageView texture_view = VK_NULL_HANDLE;
+    if (vkCreateImageView(ctx.device, &texture_view_info, NULL, &texture_view) != VK_SUCCESS) {
+        lv_fatal("Failed to create image view.");
+    }
+
+    VkPhysicalDeviceProperties properties = {0};
+    vkGetPhysicalDeviceProperties(ctx.phydevice, &properties);
+
+    VkSamplerCreateInfo sampler_info = {
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .anisotropyEnable = VK_TRUE,
+        .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = VK_FALSE,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .mipLodBias = 0.0f,
+        .minLod = 0.0f,
+        .maxLod = 0.0f
+    };
+
+    VkSampler texture_sampler = VK_NULL_HANDLE;
+    if (vkCreateSampler(ctx.device, &sampler_info, NULL, &texture_sampler) != VK_SUCCESS) {
+        lv_fatal("Failed to create texture sampler.");
+    }
+
+    VkDescriptorSetLayoutBinding sampler_lyt_binding = {
+        .binding = 1,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImmutableSamplers = NULL,
+        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+    };
+
 
     lvRefArray graphics_buffers = lvRefArray_new();
     lvRefArray_add(&graphics_buffers, &vertex_buffer);
-    lvRefArray_add(&graphics_buffers, &color_buffer);
+    //lvRefArray_add(&graphics_buffers, &color_buffer);
     lvRefArray_add(&graphics_buffers, &uv_buffer);
+    lvRefArray_add(&graphics_buffers, &normal_buffer);
 
     lvArray desc_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
     lvArray_add(&desc_bindings, &ubo_lyt_binding);
+    lvArray_add(&desc_bindings, &sampler_lyt_binding);
 
     lvGraphicsPipeline graphics_pipeline;
     if (
@@ -428,14 +721,13 @@ int main(int argc, char *argv[]) {
             "../shaders/first.frag.spv",
             &graphics_buffers,
             &uniforms,
-            &desc_bindings
+            &desc_bindings,
+            texture_view,
+            texture_sampler
         ) != 0
     ) {
         lv_fatal("Failed to create graphics pipeline.");
     }
-
-    // LEAK:
-    //lvRefArray_free(&graphics_buffers);
 
 
     lvClock clock = lvClock_new();
@@ -499,6 +791,7 @@ int main(int argc, char *argv[]) {
             &swapchain,
             &graphics_buffers,
             &graphics_pipeline,
+            n_verts,
             index_buffer,
             cmd_buf,
             image_idx,
@@ -536,12 +829,20 @@ int main(int argc, char *argv[]) {
 
         float time = (float)lvPrecisionTimer_stop(&timer);
 
+        glm_scale(ubo.model, (vec3){0.8f, 0.8f, 0.8f});
+
         glm_rotate(
             ubo.model,
-            glm_rad(time * 90.0f),
-            (vec3){0.0f, 0.0f, 1.0f}
+            glm_rad(90.0f),
+            (vec3){1.0f, 0.0f, 0.0f}
         );
-        glm_lookat((vec3){2.0f, 2.0f, 2.0f}, (vec3){0.0f, 0.0f, 0.0f}, (vec3){0.0f, 0.0f, 1.0f}, ubo.view);
+
+        glm_rotate(
+            ubo.model,
+            glm_rad(-time * 90.0f),
+            (vec3){0.0f, 1.0f, 0.0f}
+        );
+        glm_lookat((vec3){2.0f, 2.0f, 2.0f}, (vec3){0.0f, 0.0f, 0.5f}, (vec3){0.0f, 0.0f, 1.0f}, ubo.view);
         glm_perspective(
             45.0f * 0.0174533f,
             (float)swapchain.extent.width / (float)swapchain.extent.height,
@@ -577,6 +878,11 @@ int main(int argc, char *argv[]) {
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
+    vkDestroySampler(ctx.device, texture_sampler, NULL);
+    vkDestroyImageView(ctx.device, texture_view, NULL);
+    vmaDestroyImage(ctx.allocator, texture, texture_alloc);
+    vmaDestroyBuffer(ctx.allocator, texture_staging._buffer, texture_staging._allocation);
+
     for (size_t i = 0; i < frame_lag; i++) {
         vmaUnmapMemory(ctx.allocator, LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation);
 
@@ -591,20 +897,28 @@ int main(int argc, char *argv[]) {
 
     vmaDestroyBuffer(ctx.allocator, index_buffer._buffer, index_buffer._allocation);
     vmaDestroyBuffer(ctx.allocator, vertex_buffer._buffer, vertex_buffer._allocation);
-    vmaDestroyBuffer(ctx.allocator, color_buffer._buffer, color_buffer._allocation);
     vmaDestroyBuffer(ctx.allocator, uv_buffer._buffer, uv_buffer._allocation);
+    vmaDestroyBuffer(ctx.allocator, normal_buffer._buffer, normal_buffer._allocation);
 
-    vkDestroyCommandPool(ctx.device, cmd_pool, NULL);
+    vkDestroyCommandPool(ctx.device, ctx.cmd_pool, NULL);
     lvArray_free(&cmd_bufs);
 
     lvGraphicsPipeline_free(&graphics_pipeline, &ctx);
+    lvRefArray_free(&graphics_buffers);
 
     lvContext_free(&ctx);
     SDL_DestroyWindow(window);
     SDL_Vulkan_UnloadLibrary();
+    IMG_Quit();
     SDL_Quit();
     
-    printf("Exited with SDL_GetError: '%s'\n", SDL_GetError());
+    printf(
+        "Exited with errors:\n"
+        "- SDL:       '%s'\n"
+        "- SDL_image: '%s'\n",
+        SDL_GetError(),
+        IMG_GetError()
+    );
 
     return EXIT_SUCCESS;
 }

@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <SDL.h>
+#include <SDL_image.h>
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"

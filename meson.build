@@ -36,6 +36,8 @@ lava_src = [
     'src/lava/containers/array.c',
     'src/lava/containers/refarray.c',
 
+    'src/lava/loaders/obj.c',
+
     'src/lava/vk/context.c',
     'src/lava/vk/swapchain.c',
     'src/lava/vk/buffer.c',
@@ -59,16 +61,29 @@ sdl2_dep = dependency(
     'sdl2',
     default_options: {'use_video_vulkan': 'enabled'}
 )
-
+sdl2_image_dep = dependency('sdl2_image')
 vulkan_dep = dependency('vulkan')
 vma_dep = dependency('VulkanMemoryAllocator')
 cglm_dep = dependency('cglm')
 
 if compiler.get_id() == 'msvc'
     sdl2_main_dep = dependency('sdl2main')
-    main_deps = [sdl2_dep, sdl2_main_dep, vulkan_dep, vma_dep, cglm_dep]
+    main_deps = [
+        sdl2_dep,
+        sdl2_main_dep,
+        sdl2_image_dep,
+        vulkan_dep,
+        vma_dep,
+        cglm_dep
+    ]
 else
-    main_deps = [sdl2_dep, vulkan_dep, vma_dep, cglm_dep]
+    main_deps = [
+        sdl2_dep,
+        vulkan_dep,
+        sdl2_image_dep,
+        vma_dep,
+        cglm_dep
+    ]
 endif
 
 executable(

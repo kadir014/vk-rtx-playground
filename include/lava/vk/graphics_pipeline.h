@@ -23,7 +23,9 @@ int lvGraphicsPipeline_init(
     const char *fragment_shader_filepath,
     lvRefArray *buffers,
     lvArray *uniforms,
-    lvArray *descriptor_bindings
+    lvArray *descriptor_bindings,
+    VkImageView texture_view,
+    VkSampler texture_sampler
 );
 
 void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx);

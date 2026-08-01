@@ -182,6 +182,7 @@ int find_physical_device(lvContext *ctx) {
         "- Max framebuffer resolution:    %ux%u\n"
         "- Max vertex input attributes:   %u\n"
         "- Max memory allocations:        %u\n"
+        "- Max sampler anisotropy:        %.1f\n"
         "\n",
         phydevice_info.deviceName,
         phydevice_info.limits.maxImageDimension2D,
@@ -189,7 +190,8 @@ int find_physical_device(lvContext *ctx) {
         phydevice_info.limits.maxFramebufferWidth,
         phydevice_info.limits.maxFramebufferHeight,
         phydevice_info.limits.maxVertexInputAttributes,
-        phydevice_info.limits.maxMemoryAllocationCount
+        phydevice_info.limits.maxMemoryAllocationCount,
+        phydevice_info.limits.maxSamplerAnisotropy
     );
 
     return 0;
@@ -259,7 +261,8 @@ static int validate_physical_device(
 
     VkPhysicalDeviceFeatures2 features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &dr
+        .pNext = &dr,
+        .features.samplerAnisotropy = VK_TRUE
     };
     vkGetPhysicalDeviceFeatures2(phydevice, &features);
 
@@ -340,11 +343,14 @@ static int create_logical_device(lvContext *ctx) {
         };
     }
 
-    VkPhysicalDeviceFeatures device_features = {false};
+    VkPhysicalDeviceFeatures device_features = {
+        .samplerAnisotropy = VK_TRUE
+    };
 
     // ENABLED FEATURES:
     // Dynamic rendering
     // Synchronization2
+    // Sampler anisotropy
 
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
@@ -367,7 +373,7 @@ static int create_logical_device(lvContext *ctx) {
         .enabledLayerCount = 0,
         .ppEnabledLayerNames = NULL,
         .enabledExtensionCount = N_REQUESTED_DEVICE_EXTENSIONS,
-        .ppEnabledExtensionNames = requested_device_extensions
+        .ppEnabledExtensionNames = requested_device_extensions,
     };
 
     if (vkCreateDevice(ctx->phydevice, &device_create_info, NULL, &ctx->device) != VK_SUCCESS) {

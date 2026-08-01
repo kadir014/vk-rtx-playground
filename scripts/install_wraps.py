@@ -8,6 +8,7 @@ if not os.path.exists("subprojects"):
 
 wraps = [
     "sdl2",
+    "sdl2_image",
     "vulkan-memory-allocator",
     "cglm",
 ]
