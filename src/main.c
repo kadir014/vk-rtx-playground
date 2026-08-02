@@ -284,6 +284,10 @@ typedef struct {
 
 
 int main(int argc, char *argv[]) {
+    #ifdef LV_DEBUG
+        printf("Built in debug mode.\n\n");
+    #endif
+
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
 	    lv_fatal("SDL initialization error: %s", SDL_GetError());
 	}
@@ -919,6 +923,8 @@ int main(int argc, char *argv[]) {
         SDL_GetError(),
         IMG_GetError()
     );
+
+    lv_check_leaks();
 
     return EXIT_SUCCESS;
 }

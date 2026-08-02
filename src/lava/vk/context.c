@@ -286,10 +286,12 @@ static int validate_physical_device(
 
         if (!found) {
             printf("Requested extensions are not supported on this physical device.");
+            LV_FREE(available_extensions);
             return 1;
         }
     }
 
+    LV_FREE(available_extensions);
     return 0;
 }
 

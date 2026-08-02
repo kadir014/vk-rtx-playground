@@ -13,6 +13,8 @@
 #include "vk_mem_alloc.h"
 #include "cglm/cglm.h"
 
+#include "lava/internal_alloc.h"
+
 
 #define LV_INVALID_INDEX_ZU (size_t)(-1)
 #define LV_INVALID_INDEX_U64 UINT64_MAX
@@ -20,15 +22,27 @@
 
 
 #ifndef LV_MALLOC
-    #define LV_MALLOC(size) malloc(size)
+    #ifdef LV_DEBUG
+        #define LV_MALLOC(size) _lv_malloc(size, __FILE__, __LINE__)
+    #else
+        #define LV_MALLOC(size) malloc(size)
+    #endif
 #endif
 
 #ifndef LV_REALLOC
-    #define LV_REALLOC(ptr, new_size) realloc(ptr, new_size)
+    #ifdef LV_DEBUG
+        #define LV_REALLOC(ptr, new_size) _lv_realloc(ptr, new_size, __FILE__, __LINE__)
+    #else
+        #define LV_REALLOC(ptr, new_size) realloc(ptr, new_size)
+    #endif
 #endif
 
 #ifndef LV_FREE
-    #define LV_FREE(ptr) free((void *)(ptr))
+    #ifdef LV_DEBUG
+        #define LV_FREE(ptr) _lv_free((void *)(ptr), __FILE__, __LINE__)
+    #else
+        #define LV_FREE(ptr) free((void *)(ptr))
+    #endif
 #endif
 
 

@@ -13,11 +13,18 @@ project(
 )
 
 
-compiler = meson.get_compiler('c')
+IS_DEBUG_BUILD = get_option('buildtype') in ['debug', 'debugoptimized']
 
-if compiler.get_id() == 'msvc'
+IS_MSVC = meson.get_compiler('c').get_id() == 'msvc'
+
+
+if IS_MSVC
     c_args = ['/arch:AVX2', '/D_CRT_SECURE_NO_WARNINGS']
     link_args = []
+
+    if IS_DEBUG_BUILD
+        c_args += '/DLV_DEBUG'
+    endif
 else
     # -march=mavx2 ?
     c_args = []
@@ -26,10 +33,16 @@ else
     # When you target C99, you also have to specify POSIX clock
     # https://raspberrypi.stackexchange.com/a/95480
     c_args += '-D_POSIX_C_SOURCE=200809L'
+
+    if IS_DEBUG_BUILD
+        c_args += '-DLV_DEBUG'
+    endif
 endif
 
 
 lava_src = [
+    'src/lava/internal.c',
+
     'src/lava/core/clock.c',
     'src/lava/core/io.c',
 
@@ -66,7 +79,7 @@ vulkan_dep = dependency('vulkan')
 vma_dep = dependency('VulkanMemoryAllocator')
 cglm_dep = dependency('cglm')
 
-if compiler.get_id() == 'msvc'
+if IS_MSVC
     sdl2_main_dep = dependency('sdl2main')
     main_deps = [
         sdl2_dep,

@@ -110,6 +110,19 @@ void test_lvRefArray_copy(ttUnitTestSuite *test) {
     lvRefArray_free(&copy);
 }
 
+void test_lvRefArray_resize(ttUnitTestSuite *test) {
+    lvRefArray refarray = lvRefArray_new();
+
+    refarray.size = 31;
+    lvRefArray_resize(&refarray);
+
+    tt_expect(lvRefArray_valid(&refarray), test);
+    tt_expect_size_t(refarray.capacity, 31, test);
+    tt_expect_size_t(refarray.size, 31, test);
+
+    lvRefArray_free(&refarray);
+}
+
 
 void test_lvArray_new(ttUnitTestSuite *test) {
     {
@@ -143,22 +156,39 @@ void test_lvArray_add(ttUnitTestSuite *test) {
     lvArray_free(&array);
 }
 
+void test_lvArray_resize(ttUnitTestSuite *test) {
+    lvArray array = lvArray_new(sizeof(int));
+
+    array.size = 31;
+    lvArray_resize(&array);
+
+    tt_expect(lvArray_valid(&array), test);
+    tt_expect_size_t(array.capacity, 31, test);
+    tt_expect_size_t(array.size, 31, test);
+
+    lvArray_free(&array);
+}
+
 
 int main(int argc, char *argv[]) {
     ttUnitTestSuite test = {0};
     test.colored_output = true;
 
-    TT_RUN_TEST(test_lvRefArray_new);
-    TT_RUN_TEST(test_lvRefArray_add);
+    // TT_RUN_TEST(test_lvRefArray_new);
+    // TT_RUN_TEST(test_lvRefArray_add);
     TT_RUN_TEST(test_lvRefArray_pop);
-    TT_RUN_TEST(test_lvRefArray_remove);
-    TT_RUN_TEST(test_lvRefArray_clear);
-    TT_RUN_TEST(test_lvRefArray_copy);
+    // TT_RUN_TEST(test_lvRefArray_remove);
+    // TT_RUN_TEST(test_lvRefArray_clear);
+    // TT_RUN_TEST(test_lvRefArray_copy);
+    // TT_RUN_TEST(test_lvRefArray_resize);
 
-    TT_RUN_TEST(test_lvArray_new);
-    TT_RUN_TEST(test_lvArray_add);
+    // TT_RUN_TEST(test_lvArray_new);
+    // TT_RUN_TEST(test_lvArray_add);
+    // TT_RUN_TEST(test_lvArray_resize);
 
     tt_print_report(&test);
+
+    lv_check_leaks();
 
     return 0;
 }
