@@ -187,6 +187,19 @@ int lvGraphicsPipeline_init(
         .alphaToOneEnable = VK_FALSE,
     };
 
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS,
+        .depthBoundsTestEnable = VK_FALSE,
+        .minDepthBounds = 0.0f,
+        .maxDepthBounds = 1.0f,
+        .stencilTestEnable = VK_FALSE,
+        .front = {0},
+        .back = {0},
+    };
+
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         .blendEnable = VK_TRUE,
@@ -345,7 +358,8 @@ int lvGraphicsPipeline_init(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .pNext = NULL,
         .colorAttachmentCount = 1,
-        .pColorAttachmentFormats = &swapchain->format.format
+        .pColorAttachmentFormats = &swapchain->format.format,
+        .depthAttachmentFormat = VK_FORMAT_D32_SFLOAT
     };
 
     VkGraphicsPipelineCreateInfo pipeline_info = {
@@ -363,7 +377,7 @@ int lvGraphicsPipeline_init(
         .pViewportState = &viewport_state_info,
         .pRasterizationState = &rasterizer_info,
         .pMultisampleState = &multisampling_info,
-        .pDepthStencilState = NULL,
+        .pDepthStencilState = &depth_stencil_info,
         .pColorBlendState = &color_blending_info,
         .pDynamicState = NULL,
 

@@ -73,11 +73,6 @@ static int create_instance(lvContext *ctx, SDL_Window *window) {
     }
     printf("\n");
 
-    const char * const requested_layers[] = {
-        "VK_LAYER_KHRONOS_validation"
-    };
-    uint32_t n_requested_layers = sizeof(requested_layers) / sizeof(char *);
-
     uint32_t n_layers = 0;
     VkLayerProperties *layer_names = NULL;
     vkEnumerateInstanceLayerProperties(&n_layers, NULL);
@@ -90,7 +85,10 @@ static int create_instance(lvContext *ctx, SDL_Window *window) {
     }
     printf("\n");
 
-    if (check_layers(requested_layers, n_requested_layers, layer_names, n_layers)) {
+    uint32_t n_requested_layers = ctx->_creation.requested_layers.size;
+    char **requested_layers = (char **)ctx->_creation.requested_layers.data;
+
+    if (check_layers((const char *const *)requested_layers, n_requested_layers, layer_names, n_layers)) {
         // TODO: nv_set_error
         printf("Requested validation layers are not available on the system.");
         LV_FREE(extension_names);
@@ -389,6 +387,15 @@ static int create_logical_device(lvContext *ctx) {
     return 0;
 }
 
+void lvContext_request_validation_layer(lvContext *ctx, const char *layer_name) {
+    // Ensure the request queue is initialized
+    if (ctx->_creation.requested_layers.capacity == 0) {
+        ctx->_creation.requested_layers = lvRefArray_new();
+    }
+    
+    lvRefArray_add(&ctx->_creation.requested_layers, (void *)layer_name);
+}
+
 int lvContext_init(lvContext *ctx, SDL_Window *window) {
     if (create_instance(ctx, window) != 0) {
         printf("Failed to create instance.");
@@ -420,6 +427,11 @@ int lvContext_init(lvContext *ctx, SDL_Window *window) {
     ctx->swapchains = lvRefArray_new();
 
     ctx->vertex_bindings = 0;
+
+    // Clean up creation info
+    if (ctx->_creation.requested_layers.capacity != 0) {
+        lvRefArray_free(&ctx->_creation.requested_layers);
+    }
 
     return 0;
 }

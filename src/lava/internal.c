@@ -31,8 +31,6 @@ static void ensure_initialized() {
 
 static bool add(Allocation *alloc) {
     if (g_size == g_capacity) {
-        g_size++;
-
         g_capacity = (size_t)((float)g_capacity * GROWTH_FACTOR);
 
         Allocation *new_allocs = realloc(
@@ -44,11 +42,8 @@ static bool add(Allocation *alloc) {
 
         g_allocs = new_allocs;
     }
-    else {
-        g_size++;
-    }
 
-    g_allocs[g_size - 1] = *alloc;
+    g_allocs[g_size++] = *alloc;
 
     return true;
 }

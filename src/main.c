@@ -10,6 +10,7 @@
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 #include "vk_mem_alloc.h"
+#define CGLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "cglm/cglm.h"
 
 #include "lava/lava.h"
@@ -71,6 +72,12 @@ void transition_image_layout(
 ) {
     // From https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/03_Drawing/01_Command_buffers.html#_image_layout_transitions
 
+    // TODO: Better depth parameter handling
+    VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+    if (new_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL || new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) {
+        aspect_mask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+
     const VkImageMemoryBarrier2 barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = NULL,
@@ -84,7 +91,7 @@ void transition_image_layout(
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = image,
         .subresourceRange = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .aspectMask = aspect_mask,
             .baseMipLevel = 0,
             .levelCount = 1,
             .baseArrayLayer = 0,
@@ -139,7 +146,9 @@ void record_cmd_buf(
     lvBuffer index_buffer,
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
-    uint32_t frame_idx_sync
+    uint32_t frame_idx_sync,
+    VkImage depth_texture,
+    VkImageView depth_view
 ) {
     // begin recording
     VkCommandBufferBeginInfo cmd_begin_info = {
@@ -166,9 +175,29 @@ void record_cmd_buf(
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
     );
 
+    // TODO: READ_BIT ne zaman gerekiyor access için?
+    transition_image_layout(
+        cmd_buf,
+        depth_texture,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
+    );
+
+    // VkClearValue is a union, remember to NOT write both members
+
     VkClearValue clear_color = {
-        .color = (VkClearColorValue){1.0f, 0.0f, 0.0f, 1.0f},
-        .depthStencil = 0
+        .color = {{0.0f, 0.0f, 0.0f, 0.0f}}
+    };
+
+    VkClearValue depth_clear_color = {
+        .depthStencil = {
+            .depth = 1.0f,
+            .stencil = 0
+        }
     };
 
     VkRenderingAttachmentInfo attachment_info = {
@@ -181,6 +210,16 @@ void record_cmd_buf(
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
     };
 
+    VkRenderingAttachmentInfo depth_attachment_info = {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .pNext = NULL,
+        .imageView = depth_view,
+        .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        .clearValue = depth_clear_color,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE // TODO: ONLY FOR DEBUGGING, CHANGE TO DONT_CARE
+    };
+
     VkRenderingInfo rendering_info = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .pNext = NULL,
@@ -189,7 +228,9 @@ void record_cmd_buf(
         .renderArea.extent = swapchain->extent,
         .layerCount = 1,
         .colorAttachmentCount = 1,
-        .pColorAttachments = &attachment_info
+        .pColorAttachments = &attachment_info,
+        .pDepthAttachment = &depth_attachment_info,
+        .pStencilAttachment = NULL
     };
 
     vkCmdBeginRendering(cmd_buf, &rendering_info);
@@ -313,7 +354,8 @@ int main(int argc, char *argv[]) {
         lv_fatal("Window creation failed: %s", SDL_GetError());
     }
 
-    lvContext ctx;
+    lvContext ctx = lvContext_default;
+    lvContext_request_validation_layer(&ctx, "VK_LAYER_KHRONOS_validation");
     if (lvContext_init(&ctx, window) != 0) {
         lv_fatal("Failed to initialize context.");
     }
@@ -354,11 +396,22 @@ int main(int argc, char *argv[]) {
     }
 
 
-    lvOBJ obj = lvOBJ_load("../assets/models/plane.obj");
+    lvPrecisionTimer obj_timer; lvPrecisionTimer_start(&obj_timer);
+    lvOBJ obj = lvOBJ_load("../assets/models/table.obj");
+    double obj_elapsed = lvPrecisionTimer_stop(&obj_timer);
     if (!obj.loaded) {
         lv_fatal("Failed to load obj file.");
     }
-    printf("Loaded obj with %zu triangles.\n", obj.mesh.tris.size);
+    printf(
+        "Loaded model:\n"
+        "- Triangles: %zu\n"
+        "- Vertices:  %zu\n"
+        "- Elapsed:   %.2f ms\n"
+        "\n",
+        obj.mesh.tris.size,
+        obj.mesh.tris.size * 3,
+        obj_elapsed * 1000.0
+    );
 
     size_t n_verts = obj.mesh.tris.size * 3;
 
@@ -552,7 +605,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-    SDL_Surface *surf = IMG_Load("../assets/textures/statue_2k.png");
+    SDL_Surface *surf = IMG_Load("C:/Users/bjkka/Desktop/fantasy-table/textures/TableComb_BaseColor.png");
     surf = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_RGBA32, 0);
     // TODO: Is the previous surface leaked? or freed implicitly?
     size_t surf_channels = surf->format->BytesPerPixel;
@@ -705,6 +758,55 @@ int main(int argc, char *argv[]) {
     };
 
 
+    VkImage depth_texture;
+    VmaAllocation depth_texture_alloc;
+
+    VkImageCreateInfo depth_texture_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .extent.width = ((lvSwapchain *)ctx.swapchains.data[0])->extent.width,
+        .extent.height = ((lvSwapchain *)ctx.swapchains.data[0])->extent.height,
+        .extent.depth = 1,
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .samples = VK_SAMPLE_COUNT_1_BIT
+    };
+
+    VmaAllocationCreateInfo depth_texture_alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO
+    };
+
+    if (vmaCreateImage(ctx.allocator, &depth_texture_info, &depth_texture_alloc_info, &depth_texture, &depth_texture_alloc, NULL) != VK_SUCCESS) {
+        lv_fatal("Failed to create depth texture.");
+    }
+
+    VkImageViewCreateInfo depth_texture_view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .image = depth_texture,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = VK_FORMAT_D32_SFLOAT,
+        .subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+        .subresourceRange.baseMipLevel = 0,
+        .subresourceRange.levelCount = 1,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.layerCount = 1
+    };
+
+    VkImageView depth_texture_view = VK_NULL_HANDLE;
+    if (vkCreateImageView(ctx.device, &depth_texture_view_info, NULL, &depth_texture_view) != VK_SUCCESS) {
+        lv_fatal("Failed to create depth image view.");
+    }
+
+
     lvRefArray graphics_buffers = lvRefArray_new();
     lvRefArray_add(&graphics_buffers, &vertex_buffer);
     //lvRefArray_add(&graphics_buffers, &color_buffer);
@@ -799,7 +901,9 @@ int main(int argc, char *argv[]) {
             index_buffer,
             cmd_buf,
             image_idx,
-            frame_idx_sync
+            frame_idx_sync,
+            depth_texture,
+            depth_texture_view
         );
 
         VkSemaphore sem_render_finished = LV_ARRAY_AT(&swapchain.sem_present, image_idx, VkSemaphore);
@@ -833,7 +937,8 @@ int main(int argc, char *argv[]) {
 
         float time = (float)lvPrecisionTimer_stop(&timer);
 
-        glm_scale(ubo.model, (vec3){0.8f, 0.8f, 0.8f});
+        float scale = 0.8f;
+        glm_scale(ubo.model, (vec3){scale, scale, scale});
 
         glm_rotate(
             ubo.model,
@@ -851,7 +956,7 @@ int main(int argc, char *argv[]) {
             45.0f * 0.0174533f,
             (float)swapchain.extent.width / (float)swapchain.extent.height,
             0.1f,
-            1000.0f,
+            100.0f,
             ubo.proj
         );
         ubo.proj[1][1] *= -1.0f;
@@ -881,6 +986,9 @@ int main(int argc, char *argv[]) {
 
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
+
+    vkDestroyImageView(ctx.device, depth_texture_view, NULL);
+    vmaDestroyImage(ctx.allocator, depth_texture, depth_texture_alloc);
 
     vkDestroySampler(ctx.device, texture_sampler, NULL);
     vkDestroyImageView(ctx.device, texture_view, NULL);
