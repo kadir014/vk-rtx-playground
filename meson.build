@@ -52,8 +52,10 @@ lava_src = [
     'src/lava/loaders/obj.c',
 
     'src/lava/vk/context.c',
+    'src/lava/vk/helpers.c',
     'src/lava/vk/swapchain.c',
     'src/lava/vk/buffer.c',
+    'src/lava/vk/image.c',
     'src/lava/vk/graphics_pipeline.c',
 
     'src/vma_impl.cpp',
