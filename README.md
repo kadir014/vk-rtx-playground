@@ -37,9 +37,11 @@ $ ./main
 ```
 
 
-# Resources
+# Resources & References
 - [Vulkan Tutorial, by Alexander Overvoorde](https://vulkan-tutorial.com/)
 - [Vulkan Documentation — Khronos Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/00_Introduction.html)
+- [Vulkan Specification](https://docs.vulkan.org/spec/latest/index.html)
+- [Vulkan API Reference](https://docs.vulkan.org/refpages/latest/refpages/index.html)
 - [AMD GPUOpen — Understanding Vulkan® Objects](https://gpuopen.com/learn/understanding-vulkan-objects/)
 
 

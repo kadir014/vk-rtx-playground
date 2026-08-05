@@ -42,6 +42,7 @@ endif
 
 lava_src = [
     'src/lava/internal.c',
+    'src/lava/vma_impl.cpp',
 
     'src/lava/core/clock.c',
     'src/lava/core/io.c',
@@ -58,7 +59,8 @@ lava_src = [
     'src/lava/vk/image.c',
     'src/lava/vk/graphics_pipeline.c',
 
-    'src/vma_impl.cpp',
+    'src/lava/world/mesh.c',
+    'src/lava/world/scene.c',
 ]
 
 lava_includes = ['include']

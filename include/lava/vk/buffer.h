@@ -18,5 +18,9 @@ typedef struct {
 
 int lvBuffer_init(lvBuffer *buffer, lvContext *ctx, VkDeviceSize reserved);
 
+int lvBuffer_init_vertex(lvBuffer *buffer, lvContext *ctx, VkDeviceSize reserved, uint32_t binding);
+
+void lvBuffer_free(lvBuffer *buffer, lvContext *ctx);
+
 
 #endif // LAVA_VK_BUFFER_H

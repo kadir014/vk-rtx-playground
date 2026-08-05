@@ -3,8 +3,11 @@
 #include "lava/core/log.h"
 #include "lava/containers/array.h"
 #include "lava/vk/buffer.h"
+#include "lava/vk/image.h"
 #include "lava/vk/swapchain.h"
 
+#include "lava/world/mesh.h"
+#include "lava/world/model.h"
 
 
 static VkShaderModule create_shader_module(lvContext *ctx, const char *filepath) {
@@ -34,95 +37,566 @@ static VkShaderModule create_shader_module(lvContext *ctx, const char *filepath)
 }
 
 
-int lvGraphicsPipeline_init(
-    lvGraphicsPipeline *pipeline,
+lvGraphicsPipelineBuilder lvGraphicsPipelineBuilder_new(
     lvContext *ctx,
-    size_t swapchain_idx,
-    const char *vertex_shader_filepath,
-    const char *fragment_shader_filepath,
-    lvRefArray *buffers,
-    lvArray *uniforms,
-    lvArray *descriptor_bindings,
-    VkImageView texture_view,
-    VkSampler texture_sampler
+    lvScene *scene
 ) {
-    // SHADERS
+    lvGraphicsPipelineBuilder builder = {0};
+    builder.ctx = ctx;
+    builder.scene = scene;
 
-    VkShaderModule vert_module = create_shader_module(ctx, vertex_shader_filepath);
-    VkShaderModule frag_module = create_shader_module(ctx, fragment_shader_filepath);
+    builder.n_models = scene->models.size;
+    builder.n_materials = scene->materials.size;
 
+    builder.shader_modules = lvArray_new(sizeof(VkShaderModule));
+    builder.shader_stage_infos = lvArray_new(sizeof(VkPipelineShaderStageCreateInfo));
 
-    // VERTEX BINDING
+    builder.resource_defs = lvArray_new(sizeof(lvGraphicsPipelineResourceDefinition));
 
-    // VkVertexInputBindingDescription vertex_binding_desc ={
-    //     .binding = 0,
-    //     .stride = sizeof(Vertex),
-    //     .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-    // };
+    return builder;
+}
 
-    // VkVertexInputAttributeDescription vertex_attr_descs[2];
-    // vertex_attr_descs[0] = (VkVertexInputAttributeDescription){
-    //     .binding = 0,
-    //     .location = 0,
-    //     .format = VK_FORMAT_R32G32_SFLOAT,
-    //     .offset = offsetof(Vertex, position)
-    // };
-    // vertex_attr_descs[1] = (VkVertexInputAttributeDescription){
-    //     .binding = 0,
-    //     .location = 1,
-    //     .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-    //     .offset = offsetof(Vertex, color)
-    // };
+int lvGraphicsPipelineBuilder_load_shader(
+    lvGraphicsPipelineBuilder *builder,
+    const char *filepath,
+    VkShaderStageFlagBits stage
+) {
+    VkShaderModule module = create_shader_module(builder->ctx, filepath);
 
-    lvArray bindings = lvArray_new(sizeof(VkVertexInputBindingDescription));
-    lvArray attrs = lvArray_new(sizeof(VkVertexInputAttributeDescription));
+    VkPipelineShaderStageCreateInfo stage_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .stage = stage,
+        .module = module,
+        .pName = "main",
+        .pSpecializationInfo = NULL
+    };
 
-    for (size_t i = 0; i < buffers->size; i++) {
-        lvBuffer *buffer = buffers->data[i];
+    if (lvArray_add(&builder->shader_modules, &module) != 0) return 1;
+    if (lvArray_add(&builder->shader_stage_infos, &stage_info) != 0) return 1;
 
-        lvArray_add(&bindings, &buffer->_binding_desc);
-        lvArray_add(&attrs, &buffer->_attr_desc);
+    return 0;
+}
+
+int lvGraphicsPipelineBuilder_define_resource(
+    lvGraphicsPipelineBuilder *builder,
+    char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH],
+    lvResourceType type,
+    lvResourceFreq freq,
+    VkShaderStageFlagBits stages,
+    size_t size
+) {
+    size_t binding = 0;
+    if (freq == LV_RESOURCE_FREQ_GLOBAL) {
+        binding = builder->set0_accumulate++;
+    }
+    else if (freq == LV_RESOURCE_FREQ_MATERIAL) {
+        binding = builder->set1_accumulate++;
+    }
+    else if (freq == LV_RESOURCE_FREQ_OBJECT) {
+        binding = builder->set2_accumulate++;
+    }
+    else if (freq == LV_RESOURCE_FREQ_STATIC) {
+        binding = builder->set3_accumulate++;
+    }
+
+    lvGraphicsPipelineResourceDefinition resource_def = {
+        .name = 0,
+        .type = type,
+        .freq = freq,
+        .stages = stages,
+        .binding = binding,
+        .size = size
+    };
+    memcpy(resource_def.name, name, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
+
+    if (lvArray_add(&builder->resource_defs, &resource_def) != 0) return 1;
+
+    return 0;
+}
+
+int lvGraphicsPipelineBuilder_build(
+    lvGraphicsPipelineBuilder *builder,
+    lvGraphicsPipeline *pipeline
+) {
+    lvContext *ctx = builder->ctx;
+    uint32_t frame_lag = ctx->frame_lag;
+    uint32_t n_models = builder->n_models;
+    uint32_t n_materials = builder->n_materials;
+
+    // BUILD DESCRIPTOR LAYOUTS FROM RESOURCE DEFINITIONS
+
+    lvArray global_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
+    lvArray material_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
+    lvArray object_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
+    lvArray static_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
+
+    size_t global_copies   = builder->set0_accumulate > 0 ? frame_lag : 0;
+    size_t material_copies = builder->set1_accumulate > 0 ? frame_lag * n_materials : 0;
+    size_t object_copies   = builder->set2_accumulate > 0 ? frame_lag * n_models : 0;
+    size_t static_copies   = builder->set3_accumulate > 0 ? 1 : 0;
+
+    printf(
+        "Beginning descriptor layout builds:\n"
+        "- Global copies:   %zu\n"
+        "- Material copies: %zu\n"
+        "- Object copies:   %zu\n"
+        "- Static copies:   %zu\n"
+        "\n",
+        global_copies,
+        material_copies,
+        object_copies,
+        static_copies
+    );
+
+    lvArray desc_pool_sizes = lvArray_new(sizeof(VkDescriptorPoolSize));
+    size_t total_copies = 0;
+
+    for (size_t i = 0; i < builder->resource_defs.size; i++) {
+        lvGraphicsPipelineResourceDefinition resource_def = LV_ARRAY_AT(
+            &builder->resource_defs,
+            i,
+            lvGraphicsPipelineResourceDefinition
+        );
+
+        VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+
+        if (resource_def.type == LV_RESOURCE_TYPE_UNIFORM) {
+            desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        }
+        else if (resource_def.type == LV_RESOURCE_TYPE_SAMPLER) {
+            desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        }
+
+        VkDescriptorSetLayoutBinding desc_binding = {
+            .binding = resource_def.binding,
+            .descriptorType = desc_type,
+            .descriptorCount = 1,
+            .stageFlags = resource_def.stages,
+            .pImmutableSamplers = NULL
+        };
+
+        size_t copies = 0;
+        if (resource_def.freq == LV_RESOURCE_FREQ_GLOBAL) {
+            lvArray_add(&global_set_bindings, &desc_binding);
+            copies = global_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_MATERIAL) {
+            lvArray_add(&material_set_bindings, &desc_binding);
+            copies = material_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_OBJECT) {
+            lvArray_add(&object_set_bindings, &desc_binding);
+            copies = object_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_STATIC) {
+            lvArray_add(&static_set_bindings, &desc_binding);
+            copies = static_copies;
+        }
+        else {
+            lv_fatal("Unknown resource frequency!");
+        }
+
+        // Allocating with 0 pool size is not allowed unless requested explicitly with extensions, but I'm not handling that shit
+        if (copies == 0) {
+            continue;
+        }
+
+        VkDescriptorPoolSize desc_pool_size = {
+            .type = desc_type,
+            .descriptorCount = copies
+        };
+
+        total_copies += copies;
+        lvArray_add(&desc_pool_sizes, &desc_pool_size);
+    }
+
+    VkDescriptorPoolCreateInfo desc_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .poolSizeCount = desc_pool_sizes.size,
+        .pPoolSizes = (VkDescriptorPoolSize *)desc_pool_sizes.data,
+        .maxSets = total_copies
+    };
+
+    if (vkCreateDescriptorPool(ctx->device, &desc_pool_info, NULL, &pipeline->desc_pool) != VK_SUCCESS) {
+        printf("Failed to create descriptor pool.\n");
+        return 1;
+    }
+
+    VkDescriptorSetLayoutCreateInfo global_lyt_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .bindingCount = builder->set0_accumulate,
+        .pBindings = (VkDescriptorSetLayoutBinding *)global_set_bindings.data
+    };
+
+    VkDescriptorSetLayoutCreateInfo material_lyt_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .bindingCount = builder->set1_accumulate,
+        .pBindings = (VkDescriptorSetLayoutBinding *)material_set_bindings.data
+    };
+
+    VkDescriptorSetLayoutCreateInfo object_lyt_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .bindingCount = builder->set2_accumulate,
+        .pBindings = (VkDescriptorSetLayoutBinding *)object_set_bindings.data
+    };
+
+    VkDescriptorSetLayoutCreateInfo static_lyt_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = NULL,
+        .flags = 0,
+        .bindingCount = builder->set3_accumulate,
+        .pBindings = (VkDescriptorSetLayoutBinding *)static_set_bindings.data
+    };
+
+    if (vkCreateDescriptorSetLayout(ctx->device, &global_lyt_info, NULL, &pipeline->global_lyt) != VK_SUCCESS) {
+        printf("Failed to create GLOBAL descriptor set layout.\n");
+        return 1;
+    }
+
+    if (vkCreateDescriptorSetLayout(ctx->device, &material_lyt_info, NULL, &pipeline->material_lyt) != VK_SUCCESS) {
+        printf("Failed to create MATERIAL descriptor set layout.\n");
+        return 1;
+    }
+
+    if (vkCreateDescriptorSetLayout(ctx->device, &object_lyt_info, NULL, &pipeline->object_lyt) != VK_SUCCESS) {
+        printf("Failed to create OBJECT descriptor set layout.\n");
+        return 1;
+    }
+
+    if (vkCreateDescriptorSetLayout(ctx->device, &static_lyt_info, NULL, &pipeline->static_lyt) != VK_SUCCESS) {
+        printf("Failed to create STATIC descriptor set layout.\n");
+        return 1;
     }
 
     printf(
-        "Graphics pipeline:\n"
-        "- Bindings: %zu\n"
-        "- Attrs:    %zu\n"
+        "Resource descriptors:\n"
+        "- Global resources:        %zu\n"
+        "- Material resources:      %zu\n"
+        "- Object resources:        %zu\n"
+        "- Static resources:        %zu\n"
+        "- Total copies (max sets): %zu\n"
         "\n",
-        bindings.size,
-        attrs.size
+        builder->set0_accumulate * global_copies,
+        builder->set1_accumulate * material_copies,
+        builder->set2_accumulate * object_copies,
+        builder->set3_accumulate * static_copies,
+        total_copies
     );
+
+
+    // BUILD DESCRIPTOR SETS
+
+    VkDescriptorSetLayout *global_layouts = LV_MALLOC(sizeof(VkDescriptorSetLayout) * global_copies);
+    for (uint32_t i = 0; i < global_copies; i++) {
+        global_layouts[i] = pipeline->global_lyt;
+    }
+
+    VkDescriptorSetLayout *material_layouts = LV_MALLOC(sizeof(VkDescriptorSetLayout) * material_copies);
+    for (uint32_t i = 0; i < material_copies; i++) {
+        material_layouts[i] = pipeline->material_lyt;
+    }
+
+    VkDescriptorSetLayout *object_layouts = LV_MALLOC(sizeof(VkDescriptorSetLayout) * object_copies);
+    for (uint32_t i = 0; i < object_copies; i++) {
+        object_layouts[i] = pipeline->object_lyt;
+    }
+
+    VkDescriptorSetLayout *static_layouts = LV_MALLOC(sizeof(VkDescriptorSetLayout) * static_copies);
+    for (uint32_t i = 0; i < static_copies; i++) {
+        static_layouts[i] = pipeline->static_lyt;
+    }
+
+    VkDescriptorSetAllocateInfo global_set_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = NULL,
+        .descriptorPool = pipeline->desc_pool,
+        .descriptorSetCount = global_copies,
+        .pSetLayouts = global_layouts
+    };
+
+    VkDescriptorSetAllocateInfo material_set_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = NULL,
+        .descriptorPool = pipeline->desc_pool,
+        .descriptorSetCount = material_copies,
+        .pSetLayouts = material_layouts
+    };
+
+    VkDescriptorSetAllocateInfo object_set_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = NULL,
+        .descriptorPool = pipeline->desc_pool,
+        .descriptorSetCount = object_copies,
+        .pSetLayouts = object_layouts
+    };
+
+    VkDescriptorSetAllocateInfo static_set_alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = NULL,
+        .descriptorPool = pipeline->desc_pool,
+        .descriptorSetCount = static_copies,
+        .pSetLayouts = static_layouts
+    };
+
+    pipeline->global_sets = LV_MALLOC(sizeof(VkDescriptorSet) * global_copies);
+    pipeline->material_sets = LV_MALLOC(sizeof(VkDescriptorSet) * material_copies);
+    pipeline->object_sets = LV_MALLOC(sizeof(VkDescriptorSet) * object_copies);
+    pipeline->static_sets = LV_MALLOC(sizeof(VkDescriptorSet) * static_copies);
+
+    if (global_set_alloc_info.descriptorSetCount > 0) {
+        if (vkAllocateDescriptorSets(ctx->device, &global_set_alloc_info, pipeline->global_sets) != VK_SUCCESS) {
+            printf("Failed to allocate descriptior set for GLOBAL.\n");
+            return 1;
+        }
+    }
+
+    if (material_set_alloc_info.descriptorSetCount > 0) {
+        if (vkAllocateDescriptorSets(ctx->device, &material_set_alloc_info, pipeline->material_sets) != VK_SUCCESS) {
+            printf("Failed to allocate descriptior set for MATERIAL.\n");
+            return 1;
+        }
+    }
+
+    if (object_set_alloc_info.descriptorSetCount > 0) {
+        VkResult a = vkAllocateDescriptorSets(ctx->device, &object_set_alloc_info, pipeline->object_sets);
+        if (a != VK_SUCCESS) {
+            printf("Failed to allocate descriptior set for OBJECT: %d\n", a);
+            return 1;
+        }
+    }
+
+    if (static_set_alloc_info.descriptorSetCount > 0) {
+        if (vkAllocateDescriptorSets(ctx->device, &static_set_alloc_info, pipeline->static_sets) != VK_SUCCESS) {
+            printf("Failed to allocate descriptior set for STATIC.\n");
+            return 1;
+        }
+    }
+
+    LV_FREE(global_layouts);
+    LV_FREE(material_layouts);
+    LV_FREE(object_layouts);
+    LV_FREE(static_layouts);
+
+
+    // ALLOCATE ACTUAL RESOURCES
+
+    // TODO: There might be a more efficient solution than looping over resource
+    // definitions again, but I'm happy with this for now
+    
+    pipeline->uniform_slots = lvRefArray_new();
+
+    for (size_t i = 0; i < builder->resource_defs.size; i++) {
+        lvGraphicsPipelineResourceDefinition resource_def = LV_ARRAY_AT(
+            &builder->resource_defs,
+            i,
+            lvGraphicsPipelineResourceDefinition
+        );
+
+        size_t copies = 0;
+        if (resource_def.freq == LV_RESOURCE_FREQ_GLOBAL) {
+            copies = global_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_MATERIAL) {
+            copies = material_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_OBJECT) {
+            copies = object_copies;
+        }
+        else if (resource_def.freq == LV_RESOURCE_FREQ_STATIC) {
+            copies = static_copies;
+        }
+
+        // Allocating with 0 pool size is not allowed unless requested explicitly with extensions, but I'm not handling that shit
+        if (copies == 0) {
+            continue;
+        }
+
+        // Allocate buffer resources
+
+        if (resource_def.type == LV_RESOURCE_TYPE_UNIFORM) {
+            size_t w = 0;
+            size_t h = 0;
+            VkDescriptorSet *uniform_sets = NULL;
+
+            switch (resource_def.freq) {
+                case LV_RESOURCE_FREQ_GLOBAL:
+                    uniform_sets = pipeline->global_sets;
+                    w = frame_lag;
+                    h = frame_lag;
+                    break;
+                case LV_RESOURCE_FREQ_MATERIAL:
+                    uniform_sets = pipeline->material_sets;
+                    w = n_materials;
+                    h = frame_lag;
+                    break;
+                case LV_RESOURCE_FREQ_OBJECT:
+                    uniform_sets = pipeline->object_sets;
+                    w = n_models;
+                    h = frame_lag;
+                    break;
+                case LV_RESOURCE_FREQ_STATIC:
+                    uniform_sets = pipeline->static_sets;
+                    w = 1;
+                    h = 1;
+                    break;
+            }
+
+            for (size_t y = 0; y < h; y++) {
+                for (size_t x = 0; x < w; x++) {
+
+                    lvGraphicsPipelineUniformSlot *uniform_slot = LV_MALLOC(sizeof(lvGraphicsPipelineUniformSlot));
+                    if (!uniform_slot) {
+                        printf("Failed to allocate for uniform slot.\n");
+                        return 1;
+                    }
+
+                    size_t idx2d[2] = {y, x};
+                    memcpy(uniform_slot->idx, idx2d, sizeof(idx2d) * 2);
+
+                    memcpy(uniform_slot->name, resource_def.name, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
+
+                    uniform_slot->size = resource_def.size;
+                    uniform_slot->buffer = (lvBuffer){0};
+                    uniform_slot->mapped = NULL;
+
+                    VkBufferCreateInfo uniform_buffer_info = {
+                        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                        .pNext = NULL,
+                        .flags = 0,
+                        .size = resource_def.size,
+                        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+                    };
+
+                    // TODO: Uniform buffers can be read, written and accessed in random order. But maybe choose sequential write for speed?
+                    VmaAllocationCreateInfo uniform_buffer_alloc_info = {
+                        .usage = VMA_MEMORY_USAGE_AUTO,
+                        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+                    };
+
+                    if (
+                        vmaCreateBuffer(
+                            ctx->allocator,
+                            &uniform_buffer_info,
+                            &uniform_buffer_alloc_info,
+                            &uniform_slot->buffer._buffer,
+                            &uniform_slot->buffer._allocation,
+                            NULL
+                        ) != VK_SUCCESS
+                    ) {
+                        printf("Failed to create uniform buffer.\n");
+                        return 1;
+                    }
+
+                    if (
+                        vmaMapMemory(
+                            ctx->allocator,
+                            uniform_slot->buffer._allocation,
+                            &uniform_slot->mapped
+                        ) != VK_SUCCESS
+                    ) {
+                        printf("Failed to map uniform buffer.\n");
+                        return 1;
+                    }
+
+                    lvRefArray_add(&pipeline->uniform_slots, uniform_slot);
+
+                    size_t set_idx = y * w + x;
+
+                    VkDescriptorBufferInfo desc_buffer_info = {
+                        .buffer = uniform_slot->buffer._buffer,
+                        .offset = 0,
+                        .range = VK_WHOLE_SIZE
+                    };
+
+                    VkWriteDescriptorSet desc_write = {
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext = NULL,
+                        .dstSet = uniform_sets[set_idx],
+                        .dstBinding = resource_def.binding,
+                        .dstArrayElement = 0,
+                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        .descriptorCount = 1,
+                        .pBufferInfo = &desc_buffer_info,
+                        .pImageInfo = NULL,
+                        .pTexelBufferView = NULL
+                    };
+
+                    vkUpdateDescriptorSets(ctx->device, 1, &desc_write, 0, NULL);
+                }
+            }
+        }
+    }
+
+    // for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
+    //     lvImage image = *((lvImage *)textures.data[mat_i]);
+    //     VkDescriptorImageInfo desc_image_info = {
+    //         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    //         .imageView = image.view,
+    //         .sampler = image.sampler,
+    //     };
+
+    //     VkWriteDescriptorSet desc_write_img = {
+    //         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    //         .pNext = NULL,
+    //         .dstSet = material_sets[mat_i],
+    //         .dstBinding = 0,
+    //         .dstArrayElement = 0,
+    //         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    //         .descriptorCount = 1,
+    //         .pBufferInfo = NULL,
+    //         .pImageInfo = &desc_image_info,
+    //         .pTexelBufferView = NULL
+    //     };
+
+    //     vkUpdateDescriptorSets(ctx.device, 1, &desc_write_img, 0, NULL);
+    // }
+
+
+    // COLLECT VERTEX BUFFER BINDINGS AND ATTRIBUTES
+
+    lvArray vertex_bindings = lvArray_new(sizeof(VkVertexInputBindingDescription));
+    lvArray vertex_attrs = lvArray_new(sizeof(VkVertexInputAttributeDescription));
+
+    /*
+        Loop over one mesh because we only need the binding state of one model,
+        since every model share the same binding and attribute layouts..
+
+        TODO: I need a more elegant solution for this.
+    */
+    for (size_t i = 0; i < 1; i++) {
+        lvModel *model = LV_ARRAY_PTR_AT(&builder->scene->models, i, lvModel);
+        // TODO: Loop over all meshes of one model
+        lvMesh *mesh = model->meshes.data[0];
+
+        lvArray_add(&vertex_bindings, &mesh->vertices._binding_desc);
+        lvArray_add(&vertex_attrs, &mesh->vertices._attr_desc);
+        lvArray_add(&vertex_bindings, &mesh->uvs._binding_desc);
+        lvArray_add(&vertex_attrs, &mesh->uvs._attr_desc);
+        lvArray_add(&vertex_bindings, &mesh->normals._binding_desc);
+        lvArray_add(&vertex_attrs, &mesh->normals._attr_desc);
+    }
 
 
     // FIXED PIPELINE
 
-    VkPipelineShaderStageCreateInfo vert_stage_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext = NULL,
-        .stage = VK_SHADER_STAGE_VERTEX_BIT,
-        .module = vert_module,
-        .pName = "main",
-        .pSpecializationInfo = NULL
-    };
-
-    VkPipelineShaderStageCreateInfo frag_stage_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .pNext = NULL,
-        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = frag_module,
-        .pName = "main",
-        .pSpecializationInfo = NULL
-    };
-
-    VkPipelineShaderStageCreateInfo stage_infos[2] = {vert_stage_info, frag_stage_info};
-
     VkPipelineVertexInputStateCreateInfo vertex_input_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .pNext = NULL,
-        .vertexBindingDescriptionCount = bindings.size,
-        .pVertexBindingDescriptions = (VkVertexInputBindingDescription *)bindings.data,
-        .vertexAttributeDescriptionCount = attrs.size,
-        .pVertexAttributeDescriptions = (VkVertexInputAttributeDescription *)attrs.data,
+        .vertexBindingDescriptionCount = vertex_bindings.size,
+        .pVertexBindingDescriptions = (VkVertexInputBindingDescription *)vertex_bindings.data,
+        .vertexAttributeDescriptionCount = vertex_attrs.size,
+        .pVertexAttributeDescriptions = (VkVertexInputAttributeDescription *)vertex_attrs.data,
     };
 
     VkPipelineInputAssemblyStateCreateInfo input_ass_info = {
@@ -133,6 +607,8 @@ int lvGraphicsPipeline_init(
         .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
     };
 
+    // TODO: swapchain_idx parameter
+    const size_t swapchain_idx = 0;
     lvSwapchain *swapchain = ctx->swapchains.data[swapchain_idx];
 
     VkViewport viewport = {
@@ -225,123 +701,19 @@ int lvGraphicsPipeline_init(
     color_blending_info.blendConstants[2] = 0.0f;
     color_blending_info.blendConstants[3] = 0.0f;
 
-
-    // DESCRIPTORS & LAYOUTS
-
-    const uint32_t frame_lag = 2;
-
-    #define N_DESC_POOL_SIZES 2
-    VkDescriptorPoolSize desc_pool_sizes[N_DESC_POOL_SIZES];
     
-    desc_pool_sizes[0] = (VkDescriptorPoolSize){
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = frame_lag
+    VkDescriptorSetLayout desc_layouts[4] = {
+        pipeline->global_lyt,
+        pipeline->material_lyt,
+        pipeline->object_lyt,
+        pipeline->static_lyt
     };
-
-    desc_pool_sizes[1] = (VkDescriptorPoolSize){
-        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = frame_lag
-    };
-
-    VkDescriptorPoolCreateInfo desc_pool_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .poolSizeCount = N_DESC_POOL_SIZES,
-        .pPoolSizes = desc_pool_sizes,
-        .maxSets = frame_lag
-    };
-
-    if (vkCreateDescriptorPool(ctx->device, &desc_pool_info, NULL, &pipeline->desc_pool) != VK_SUCCESS) {
-        printf("Failed to create descriptor pool.\n");
-        return 1;
-    }
-
-    VkDescriptorSetLayoutCreateInfo descriptor_set_lyt_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .bindingCount = descriptor_bindings->size,
-        .pBindings = (VkDescriptorSetLayoutBinding *)descriptor_bindings->data
-    };
-
-    if (vkCreateDescriptorSetLayout(ctx->device, &descriptor_set_lyt_info, NULL, &pipeline->set_lyt) != VK_SUCCESS) {
-        printf("Failed to create descriptor set layout.\n");
-        return 1;
-    }
-
-    lvArray desc_layouts = lvArray_new(sizeof(VkDescriptorSetLayout));
-    for (size_t i = 0; i < frame_lag; i++) {
-        lvArray_add(&desc_layouts, &pipeline->set_lyt);
-    }
-
-    VkDescriptorSetAllocateInfo desc_set_alloc_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = NULL,
-        .descriptorPool = pipeline->desc_pool,
-        .descriptorSetCount = frame_lag,
-        .pSetLayouts = (VkDescriptorSetLayout *)desc_layouts.data
-    };
-
-    pipeline->desc_sets = lvArray_new(sizeof(VkDescriptorSet));
-    pipeline->desc_sets.size = frame_lag;
-    lvArray_resize(&pipeline->desc_sets);
-
-    if (vkAllocateDescriptorSets(ctx->device, &desc_set_alloc_info, (VkDescriptorSet *)pipeline->desc_sets.data) != VK_SUCCESS) {
-        printf("Failed to allocate descriptior set.\n");
-        return 1;
-    }
-
-    for (size_t i = 0; i < frame_lag; i++) {
-        VkDescriptorBufferInfo desc_buffer_info = {
-            .buffer = LV_ARRAY_PTR_AT(uniforms, i, lvBuffer)->_buffer,
-            .offset = 0,
-            .range = VK_WHOLE_SIZE
-        };
-
-        VkDescriptorImageInfo desc_image_info = {
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .imageView = texture_view,
-            .sampler = texture_sampler
-        };
-
-        VkWriteDescriptorSet desc_writes[2];
-        
-        desc_writes[0] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = NULL,
-            .dstSet = LV_ARRAY_AT(&pipeline->desc_sets, i, VkDescriptorSet),
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .pBufferInfo = &desc_buffer_info,
-            .pImageInfo = NULL,
-            .pTexelBufferView = NULL
-        };
-
-        desc_writes[1] = (VkWriteDescriptorSet){
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = NULL,
-            .dstSet = LV_ARRAY_AT(&pipeline->desc_sets, i, VkDescriptorSet),
-            .dstBinding = 1,
-            .dstArrayElement = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .pBufferInfo = NULL,
-            .pImageInfo = &desc_image_info,
-            .pTexelBufferView = NULL
-        };
-
-        vkUpdateDescriptorSets(ctx->device, 2, desc_writes, 0, NULL);
-    }
-
     VkPipelineLayoutCreateInfo pipeline_lyt_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = NULL,
         .flags = 0,
-        .setLayoutCount = 1,
-        .pSetLayouts = &pipeline->set_lyt,
+        .setLayoutCount = 4,
+        .pSetLayouts = desc_layouts,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = NULL
     };
@@ -351,8 +723,8 @@ int lvGraphicsPipeline_init(
         return 1;
     }
 
-    
-    // GRAPHICS PIPELINE
+
+    // INIT GRAPHICS PIPELINE
 
     VkPipelineRenderingCreateInfo pipeline_rendering_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
@@ -368,8 +740,8 @@ int lvGraphicsPipeline_init(
         .flags = 0,
 
         // Shader stages
-        .stageCount = 2,
-        .pStages = stage_infos,
+        .stageCount = builder->shader_stage_infos.size,
+        .pStages = (VkPipelineShaderStageCreateInfo *)builder->shader_stage_infos.data,
 
         // Fixed pipeline
         .pVertexInputState = &vertex_input_info,
@@ -398,11 +770,27 @@ int lvGraphicsPipeline_init(
         return 1;
     }
 
-    vkDestroyShaderModule(ctx->device, frag_module, NULL);
-    vkDestroyShaderModule(ctx->device, vert_module, NULL);
 
-    lvArray_free(&bindings);
-    lvArray_free(&attrs);
+    // CLEANUP
+
+    for (size_t i = 0; i < builder->shader_modules.size; i++) {
+        vkDestroyShaderModule(
+            ctx->device,
+            LV_ARRAY_AT(&builder->shader_modules, i, VkShaderModule),
+            NULL
+        );
+    }
+
+    lvArray_free(&vertex_attrs);
+    lvArray_free(&vertex_bindings);
+    lvArray_free(&desc_pool_sizes);
+    lvArray_free(&global_set_bindings);
+    lvArray_free(&material_set_bindings);
+    lvArray_free(&object_set_bindings);
+    lvArray_free(&static_set_bindings);
+    lvArray_free(&builder->resource_defs);
+    lvArray_free(&builder->shader_modules);
+    lvArray_free(&builder->shader_stage_infos);
 
     return 0;
 }
@@ -410,9 +798,60 @@ int lvGraphicsPipeline_init(
 void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx) {
     if (!pipeline) return;
 
-    lvArray_free(&pipeline->desc_sets);
+    for (size_t i = 0; i < pipeline->uniform_slots.size; i++) {
+        lvGraphicsPipelineUniformSlot *uniform_slot = pipeline->uniform_slots.data[i];
+        vmaUnmapMemory(ctx->allocator, uniform_slot->buffer._allocation);
+        vmaDestroyBuffer(ctx->allocator, uniform_slot->buffer._buffer, uniform_slot->buffer._allocation);
+        LV_FREE(uniform_slot);
+    }
+    lvRefArray_free(&pipeline->uniform_slots);
+
+    LV_FREE(pipeline->global_sets);
+    LV_FREE(pipeline->material_sets);
+    LV_FREE(pipeline->object_sets);
+    LV_FREE(pipeline->static_sets);
+
     vkDestroyDescriptorPool(ctx->device, pipeline->desc_pool, NULL);
-    vkDestroyDescriptorSetLayout(ctx->device, pipeline->set_lyt, NULL);
+    vkDestroyDescriptorSetLayout(ctx->device, pipeline->global_lyt, NULL);
+    vkDestroyDescriptorSetLayout(ctx->device, pipeline->material_lyt, NULL);
+    vkDestroyDescriptorSetLayout(ctx->device, pipeline->object_lyt, NULL);
+    vkDestroyDescriptorSetLayout(ctx->device, pipeline->static_lyt, NULL);
     vkDestroyPipelineLayout(ctx->device, pipeline->layout, NULL);
     vkDestroyPipeline(ctx->device, pipeline->pipeline, NULL);
+}
+
+int lvGraphicsPipeline_set_uniform(
+    lvGraphicsPipeline *pipeline,
+    const char *name,
+    void *data,
+    size_t idx[2]
+) {
+    if (!pipeline || !name || !data) {
+        return 1;
+    }
+
+    lvGraphicsPipelineUniformSlot *found_slot = NULL;
+    for (size_t i = 0; i < pipeline->uniform_slots.size; i++) {
+        lvGraphicsPipelineUniformSlot *slot = pipeline->uniform_slots.data[i];
+
+        if (
+            strcmp(slot->name, name) == 0 &&
+            slot->idx[0] == idx[0] &&
+            slot->idx[1] == idx[1]
+        ) {
+            found_slot = slot;
+            break;
+        }
+    }
+
+    if (!found_slot) {
+        return 1;
+    }
+
+    size_t frame_idx = idx[0];
+    size_t obj_idx = idx[1];
+
+    memcpy(found_slot->mapped, data, found_slot->size);
+
+    return 0;
 }

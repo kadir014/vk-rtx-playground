@@ -6,6 +6,9 @@
 #include "lava/containers/refarray.h"
 
 
+#define LV_CONTEXT_DEFAULT_FRAME_LAG 2
+
+
 typedef struct {
     uint32_t graphics_idx;
     uint32_t present_idx;
@@ -30,6 +33,8 @@ typedef struct {
     VkDevice device;
     VkQueue graphics_q;
     VkQueue present_q;
+
+    size_t frame_lag;
 
     VkCommandPool cmd_pool;
 

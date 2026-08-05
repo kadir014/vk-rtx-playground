@@ -428,6 +428,8 @@ int lvContext_init(lvContext *ctx, SDL_Window *window) {
 
     ctx->vertex_bindings = 0;
 
+    ctx->frame_lag = LV_CONTEXT_DEFAULT_FRAME_LAG;
+
     // Clean up creation info
     if (ctx->_creation.requested_layers.capacity != 0) {
         lvRefArray_free(&ctx->_creation.requested_layers);

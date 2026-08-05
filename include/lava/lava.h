@@ -18,8 +18,16 @@
 #include "lava/vk/swapchain.h"
 #include "lava/vk/buffer.h"
 #include "lava/vk/image.h"
+#include "lava/vk/resource.h"
 #include "lava/vk/graphics_pipeline.h"
 #include "lava/vk/helpers.h"
+
+#include "lava/world/camera.h"
+#include "lava/world/material.h"
+#include "lava/world/mesh.h"
+#include "lava/world/model.h"
+#include "lava/world/transform.h"
+#include "lava/world/scene.h"
 
 
 #endif // LAVA_MAIN_H

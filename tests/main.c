@@ -174,17 +174,17 @@ int main(int argc, char *argv[]) {
     ttUnitTestSuite test = {0};
     test.colored_output = true;
 
-    // TT_RUN_TEST(test_lvRefArray_new);
-    // TT_RUN_TEST(test_lvRefArray_add);
+    TT_RUN_TEST(test_lvRefArray_new);
+    TT_RUN_TEST(test_lvRefArray_add);
     TT_RUN_TEST(test_lvRefArray_pop);
-    // TT_RUN_TEST(test_lvRefArray_remove);
-    // TT_RUN_TEST(test_lvRefArray_clear);
-    // TT_RUN_TEST(test_lvRefArray_copy);
-    // TT_RUN_TEST(test_lvRefArray_resize);
+    TT_RUN_TEST(test_lvRefArray_remove);
+    TT_RUN_TEST(test_lvRefArray_clear);
+    TT_RUN_TEST(test_lvRefArray_copy);
+    TT_RUN_TEST(test_lvRefArray_resize);
 
-    // TT_RUN_TEST(test_lvArray_new);
-    // TT_RUN_TEST(test_lvArray_add);
-    // TT_RUN_TEST(test_lvArray_resize);
+    TT_RUN_TEST(test_lvArray_new);
+    TT_RUN_TEST(test_lvArray_add);
+    TT_RUN_TEST(test_lvArray_resize);
 
     tt_print_report(&test);
 

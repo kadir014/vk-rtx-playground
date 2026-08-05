@@ -19,15 +19,12 @@
 void record_cmd_buf(
     lvContext *ctx,
     lvSwapchain *swapchain,
-    lvRefArray *graphics_buffers,
+    lvScene *scene,
     lvGraphicsPipeline *graphics_pipeline,
-    size_t n_verts,
-    lvBuffer index_buffer,
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
     uint32_t frame_idx_sync,
-    VkImage depth_texture,
-    VkImageView depth_view
+    lvImage depth_texture
 ) {
     // begin recording
     VkCommandBufferBeginInfo cmd_begin_info = {
@@ -58,7 +55,7 @@ void record_cmd_buf(
     // TODO: READ_BIT ne zaman gerekiyor access için?
     lv_transition_image_layout(
         cmd_buf,
-        depth_texture,
+        depth_texture.image,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
         VK_IMAGE_ASPECT_DEPTH_BIT,
@@ -94,7 +91,7 @@ void record_cmd_buf(
     VkRenderingAttachmentInfo depth_attachment_info = {
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .pNext = NULL,
-        .imageView = depth_view,
+        .imageView = depth_texture.view,
         .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
         .clearValue = depth_clear_color,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -118,36 +115,40 @@ void record_cmd_buf(
 
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline->pipeline);
 
-
     lvArray vk_buffers = lvArray_new(sizeof(VkBuffer));
-    for (size_t i = 0; i < graphics_buffers->size; i++) {
-        lvBuffer *buf = graphics_buffers->data[i];
+    for (size_t model_i = 0; model_i < scene->models.size; model_i++) {
+        lvModel *model = LV_ARRAY_PTR_AT(&scene->models, model_i, lvModel);
+        lvMesh *mesh = model->meshes.data[0];
 
-        lvArray_add(&vk_buffers, &(buf->_buffer));
+        // y * w + x
+        // y = frame_i
+        // w = n_models
+        // x = model_i
+        size_t ubo_idx = frame_idx_sync * scene->models.size + model_i;
+
+        vk_buffers.size = 0;
+        lvArray_add(&vk_buffers, &(mesh->vertices._buffer));
+        lvArray_add(&vk_buffers, &(mesh->uvs._buffer));
+        lvArray_add(&vk_buffers, &(mesh->normals._buffer));
+
+        VkDeviceSize offsets[] = {0, 0, 0};
+        vkCmdBindVertexBuffers(cmd_buf, 0, 3, (VkBuffer *)vk_buffers.data, offsets);
+
+        //VkDescriptorSet sets_to_bind[1] = {frame_sets[ubo_idx], mat_sets[mesh_i]};
+
+        vkCmdBindDescriptorSets(
+            cmd_buf,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            graphics_pipeline->layout,
+            2,              // firstSet
+            1,              // set count
+            &graphics_pipeline->object_sets[ubo_idx],
+            0, NULL
+        );
+
+        vkCmdDraw(cmd_buf, mesh->n_vertices, 1, 0, 0);
     }
-
-    VkDeviceSize offsets[] = {0, 0, 0};
-    vkCmdBindVertexBuffers(cmd_buf, 0, graphics_buffers->size, (VkBuffer *)vk_buffers.data, offsets);
-
-    //vkCmdBindIndexBuffer(cmd_buf, index_buffer._buffer, 0, VK_INDEX_TYPE_UINT32);
-
     lvArray_free(&vk_buffers);
-
-    vkCmdBindDescriptorSets(
-        cmd_buf,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        graphics_pipeline->layout,
-        0,
-        1,
-        LV_ARRAY_PTR_AT(&graphics_pipeline->desc_sets, frame_idx_sync, VkDescriptorSet),
-        0,
-        NULL
-    );
-
-    // TODO: Use vertices buffer length here
-    vkCmdDraw(cmd_buf, n_verts, 1, 0, 0);
-
-    //vkCmdDrawIndexed(cmd_buf, 6, 1, 0, 0, 0);
 
     vkCmdEndRendering(cmd_buf);
 
@@ -175,7 +176,7 @@ typedef struct {
     mat4 model;
     mat4 view;
     mat4 proj;
-} UniformBuffer;
+} MVP;
 
 
 int main(int argc, char *argv[]) {
@@ -209,7 +210,11 @@ int main(int argc, char *argv[]) {
     }
 
     lvContext ctx = lvContext_default;
-    lvContext_request_validation_layer(&ctx, "VK_LAYER_KHRONOS_validation");
+
+    #ifdef LV_DEBUG
+        lvContext_request_validation_layer(&ctx, "VK_LAYER_KHRONOS_validation");
+    #endif
+
     if (lvContext_init(&ctx, window) != 0) {
         lv_fatal("Failed to initialize context.");
     }
@@ -251,28 +256,28 @@ int main(int argc, char *argv[]) {
 
 
     lvPrecisionTimer obj_timer; lvPrecisionTimer_start(&obj_timer);
-    lvOBJ obj = lvOBJ_load_with_mtl(
+    lvOBJ table_obj = lvOBJ_load_with_mtl(
         "../assets/models/table.obj",
         "../assets/models/table.mtl"
     );
     double obj_elapsed = lvPrecisionTimer_stop(&obj_timer);
-    if (!obj.loaded) {
+    if (!table_obj.loaded) {
         lv_fatal("Failed to load obj file.");
     }
     printf(
-        "Loaded model:\n"
+        "Loaded OBJ:\n"
         "- Triangles: %zu\n"
         "- Vertices:  %zu\n"
         "- Elapsed:   %.2f ms\n"
         "\n",
-        obj.mesh.tris.size,
-        obj.mesh.tris.size * 3,
+        table_obj.mesh.tris.size,
+        table_obj.mesh.tris.size * 3,
         obj_elapsed * 1000.0
     );
-    lvOBJMaterialPBR *mat = lvOBJ_get_material(&obj, "TableComb");
+    lvOBJMaterialPBR *mat = lvOBJ_get_material(&table_obj, "TableMat");
     if (mat) {
         printf(
-            "  Material:\n"
+            "- Material:\n"
             "  - Name:      %s\n"
             "  - Roughness: %.2f\n"
             "\n",
@@ -280,229 +285,132 @@ int main(int argc, char *argv[]) {
             mat->roughness
         );
     }
-
-    size_t n_verts = obj.mesh.tris.size * 3;
-
-    vec3 *vertices = LV_MALLOC(sizeof(vec3) * n_verts);
-    size_t j = 0;
-    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
-        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
-
-        for (size_t i = 0; i < 3; i++) {
-            vertices[j][0] = tri.vertices[i].x;
-            vertices[j][1] = tri.vertices[i].y;
-            vertices[j][2] = tri.vertices[i].z;
-            j += 1;
-        }
+    else {
+        printf("- Material: None\n");
     }
 
-    lvBuffer vertex_buffer = {
-        .location = 0,
-        .format = VK_FORMAT_R32G32B32_SFLOAT,
-        .stride = sizeof(vec3),
-    };
-    if (lvBuffer_init(&vertex_buffer, &ctx, sizeof(vec3) * n_verts) != 0) {
-        lv_fatal("Buffer creation failed.");
+    lvPrecisionTimer_start(&obj_timer);
+    lvOBJ bunny_obj = lvOBJ_load(
+        "../assets/models/stanford_bunny_low_poly.obj"
+    );
+    obj_elapsed = lvPrecisionTimer_stop(&obj_timer);
+    if (!bunny_obj.loaded) {
+        lv_fatal("Failed to load obj file.");
     }
+    printf(
+        "Loaded OBJ:\n"
+        "- Triangles: %zu\n"
+        "- Vertices:  %zu\n"
+        "- Elapsed:   %.2f ms\n"
+        "\n",
+        bunny_obj.mesh.tris.size,
+        bunny_obj.mesh.tris.size * 3,
+        obj_elapsed * 1000.0
+    );
 
-    void *vertex_buffer_data;
-    if (vmaMapMemory(ctx.allocator, vertex_buffer._allocation, &vertex_buffer_data) != VK_SUCCESS) {
-        lv_fatal("Memory mapping failed.");
-    }
-    memcpy(vertex_buffer_data, vertices, sizeof(vec3) * n_verts);
-    vmaUnmapMemory(ctx.allocator, vertex_buffer._allocation);
-
-    LV_FREE(vertices);
-
-
-    vec2 *uvs = LV_MALLOC(sizeof(vec2) * n_verts);
-    j = 0;
-    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
-        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
-
-        for (size_t i = 0; i < 3; i++) {
-            uvs[j][0] = tri.uvs[i].x;
-            uvs[j][1] = tri.uvs[i].y;
-            j += 1;
-        }
-    }
-
-    lvBuffer uv_buffer = {
-        .location = 1,
-        .format = VK_FORMAT_R32G32_SFLOAT,
-        .stride = sizeof(vec2),
-    };
-    if (lvBuffer_init(&uv_buffer, &ctx, sizeof(vec2) * n_verts) != 0) {
-        lv_fatal("Buffer creation failed.");
-    }
-
-    void *uv_buffer_data;
-    if (vmaMapMemory(ctx.allocator, uv_buffer._allocation, &uv_buffer_data) != VK_SUCCESS) {
-        lv_fatal("Memory mapping failed.");
-    }
-    memcpy(uv_buffer_data, uvs, sizeof(vec2) * n_verts);
-    vmaUnmapMemory(ctx.allocator, uv_buffer._allocation);
-
-    LV_FREE(uvs);
-
-
-    vec3 *normals = LV_MALLOC(sizeof(vec3) * n_verts);
-    j = 0;
-    for (size_t tri_idx = 0; tri_idx < obj.mesh.tris.size; tri_idx++) {
-        lvOBJTri tri = LV_ARRAY_AT(&obj.mesh.tris, tri_idx, lvOBJTri);
-
-        for (size_t i = 0; i < 3; i++) {
-            normals[j][0] = tri.normals[i].x;
-            normals[j][1] = tri.normals[i].y;
-            normals[j][2] = tri.normals[i].z;
-            j += 1;
-        }
-    }
-
-    lvBuffer normal_buffer = {
-        .location = 2,
-        .format = VK_FORMAT_R32G32B32_SFLOAT,
-        .stride = sizeof(vec3),
-    };
-    if (lvBuffer_init(&normal_buffer, &ctx, sizeof(vec3) * n_verts) != 0) {
-        lv_fatal("Buffer creation failed.");
-    }
-
-    void *normal_buffer_data;
-    if (vmaMapMemory(ctx.allocator, normal_buffer._allocation, &normal_buffer_data) != VK_SUCCESS) {
-        lv_fatal("Memory mapping failed.");
-    }
-    memcpy(normal_buffer_data, normals, sizeof(vec3) * n_verts);
-    vmaUnmapMemory(ctx.allocator, normal_buffer._allocation);
-
-    LV_FREE(normals);
-
-
-    uint32_t indices[6] = {
-        0, 1, 2,
-        2, 3, 0
+    lvCamera camera = {
+        .position = {1.4f, 1.4f, 1.4f},
+        .dir = {-1.0f, -1.0f, 0.0f},
+        .up = {0.0f, 0.0f, 1.0f},
+        .fov = 90.0f,
+        .near_z = 0.1f,
+        .far_z = 100.0f
     };
 
-    lvBuffer index_buffer = {0};
+    lvScene scene = lvScene_new(&camera);
 
-    VkBufferCreateInfo index_buffer_info = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .pNext = NULL,
-        .flags = 0,
-        .size = sizeof(uint32_t) * 6,
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VmaAllocationCreateInfo index_buffer_alloc_info = {
-        .usage = VMA_MEMORY_USAGE_AUTO,
-        .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT 
-    };
-
-    if (vmaCreateBuffer(ctx.allocator, &index_buffer_info, &index_buffer_alloc_info, &index_buffer._buffer, &index_buffer._allocation, NULL) != VK_SUCCESS) {
-        lv_fatal("Failed to create index buffer.");
+    if (lvScene_add_model(&scene, &ctx, &table_obj, "Table") != 0) {
+        lv_fatal("Failed to add model to scene.");
     }
 
-    void *index_buffer_data;
-    if (vmaMapMemory(ctx.allocator, index_buffer._allocation, &index_buffer_data) != VK_SUCCESS) {
-        lv_fatal("Memory mapping failed.");
-    }
-    memcpy(index_buffer_data, indices, sizeof(uint32_t) * 6);
-    vmaUnmapMemory(ctx.allocator, index_buffer._allocation);
-
-
-    VkDescriptorSetLayoutBinding ubo_lyt_binding = {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        .pImmutableSamplers = NULL
-    };
-
-    lvArray uniforms = lvArray_new(sizeof(lvBuffer));
-    lvRefArray uniform_mappings = lvRefArray_new();
-
-    uniforms.size = frame_lag;
-    uniform_mappings.size = frame_lag;
-    lvArray_resize(&uniforms);
-    lvRefArray_resize(&uniform_mappings);
-
-    for (size_t i = 0; i < frame_lag; i++) {
-        VkBufferCreateInfo uniform_buffer_info = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .pNext = NULL,
-            .flags = 0,
-            .size = sizeof(UniformBuffer),
-            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-        };
-
-        // Uniform buffers can be read, written and accessed in random order
-        // But maybe choose sequential write for speed
-        VmaAllocationCreateInfo uniform_buffer_alloc_info = {
-            .usage = VMA_MEMORY_USAGE_AUTO,
-            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT 
-        };
-
-        if (
-            vmaCreateBuffer(
-                ctx.allocator,
-                &uniform_buffer_info,
-                &uniform_buffer_alloc_info,
-                &(LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_buffer),
-                &(LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation),
-                NULL
-            ) != VK_SUCCESS
-        ) {
-            lv_fatal("Failed to create uniform buffer.");
-        }
-
-        vmaMapMemory(
-            ctx.allocator,
-            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation,
-            uniform_mappings.data + i
-        );
+    if (lvScene_add_model(&scene, &ctx, &bunny_obj, "Bunny") != 0) {
+        lv_fatal("Failed to add model to scene.");
     }
 
+    printf("Scene is setup! %zu\n", scene.models.size);
 
-    const char *texture_path = "C:/Users/bjkka/Desktop/fantasy-table/textures/TableComb_BaseColor.png";
-    lvImage texture;
-    lvImage_init_from_file(&texture, &ctx, texture_path);
+
+    const char *texture_path = "../assets/textures/table_albedo.png";
+    lvImage texture0;
+    if (lvImage_init_from_file(&texture0, &ctx, texture_path) != 0) {
+        lv_fatal("Failed to load texture.");
+    }
+
+    lvImage texture1;
+    if (lvImage_init_empty(&texture1, &ctx, 1, 1, (SDL_Color){0, 255, 255, 255}) != 0) {
+        lv_fatal("Failed to create texture.");
+    }
 
     VkPhysicalDeviceProperties properties = {0};
     vkGetPhysicalDeviceProperties(ctx.phydevice, &properties);
 
-    VkSamplerCreateInfo sampler_info = {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .anisotropyEnable = VK_TRUE,
-        .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
-        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-        .unnormalizedCoordinates = VK_FALSE,
-        .compareEnable = VK_FALSE,
-        .compareOp = VK_COMPARE_OP_ALWAYS,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .mipLodBias = 0.0f,
-        .minLod = 0.0f,
-        .maxLod = 0.0f
-    };
-
-    VkSampler texture_sampler = VK_NULL_HANDLE;
-    if (vkCreateSampler(ctx.device, &sampler_info, NULL, &texture_sampler) != VK_SUCCESS) {
-        lv_fatal("Failed to create texture sampler.");
+    if (
+        lvImage_build_sampler(
+            &texture0,
+            &ctx,
+            VK_FILTER_LINEAR,
+            VK_FILTER_LINEAR,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            properties.limits.maxSamplerAnisotropy
+        ) != 0
+    ) {
+        lv_fatal("Failed to create image sampler 0.");
     }
 
-    VkDescriptorSetLayoutBinding sampler_lyt_binding = {
-        .binding = 1,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImmutableSamplers = NULL,
-        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
-    };
+    if (
+        lvImage_build_sampler(
+            &texture1,
+            &ctx,
+            VK_FILTER_NEAREST,
+            VK_FILTER_NEAREST,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            0.0f
+        ) != 0
+    ) {
+        lv_fatal("Failed to create image sampler 1.");
+    }
+
+
+    lvGraphicsPipelineBuilder graphics_builder = lvGraphicsPipelineBuilder_new(&ctx, &scene);
+
+    lvGraphicsPipelineBuilder_load_shader(
+        &graphics_builder,
+        "../shaders/first.vert.spv",
+        VK_SHADER_STAGE_VERTEX_BIT
+    );
+
+    lvGraphicsPipelineBuilder_load_shader(
+        &graphics_builder,
+        "../shaders/first.frag.spv",
+        VK_SHADER_STAGE_FRAGMENT_BIT
+    );
+
+    lvGraphicsPipelineBuilder_define_resource(
+        &graphics_builder,
+        "MVP",
+        LV_RESOURCE_TYPE_UNIFORM,
+        LV_RESOURCE_FREQ_OBJECT,
+        VK_SHADER_STAGE_VERTEX_BIT,
+        sizeof(MVP)
+    );
+
+    lvGraphicsPipelineBuilder_define_resource(
+        &graphics_builder,
+        "Texture",
+        LV_RESOURCE_TYPE_SAMPLER,
+        LV_RESOURCE_FREQ_MATERIAL,
+        VK_SHADER_STAGE_FRAGMENT_BIT,
+        0
+    );
+
+    lvGraphicsPipeline graphics_pipeline;
+    if (lvGraphicsPipelineBuilder_build(&graphics_builder, &graphics_pipeline) != 0) {
+        lv_fatal("Failed to build graphics pipeline.");
+    }
 
 
     lvImage depth_texture;
@@ -510,34 +418,105 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create depth texture.");
     }
 
+    lvRefArray textures = lvRefArray_new();
+    lvRefArray_add(&textures, &texture0);
+    lvRefArray_add(&textures, &texture1);
 
-    lvRefArray graphics_buffers = lvRefArray_new();
-    lvRefArray_add(&graphics_buffers, &vertex_buffer);
-    //lvRefArray_add(&graphics_buffers, &color_buffer);
-    lvRefArray_add(&graphics_buffers, &uv_buffer);
-    lvRefArray_add(&graphics_buffers, &normal_buffer);
 
-    lvArray desc_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
-    lvArray_add(&desc_bindings, &ubo_lyt_binding);
-    lvArray_add(&desc_bindings, &sampler_lyt_binding);
+    // //                                 [frame_lag * n_models]
+    // VkDescriptorSetLayout frame_layouts[2 * 2];
+    // for (uint32_t i = 0; i < frame_lag * n_models; i++) frame_layouts[i] = graphics_pipeline.frame_set_lyt;
 
-    lvGraphicsPipeline graphics_pipeline;
-    if (
-        lvGraphicsPipeline_init(
-            &graphics_pipeline,
-            &ctx,
-            0,
-            "../shaders/first.vert.spv",
-            "../shaders/first.frag.spv",
-            &graphics_buffers,
-            &uniforms,
-            &desc_bindings,
-            texture.view,
-            texture_sampler
-        ) != 0
-    ) {
-        lv_fatal("Failed to create graphics pipeline.");
-    }
+
+    // VkDescriptorSetAllocateInfo frame_set_alloc_info = {
+    //     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    //     .pNext = NULL,
+    //     .descriptorPool = graphics_pipeline.desc_pool,
+    //     .descriptorSetCount = frame_lag * n_models,
+    //     .pSetLayouts = frame_layouts
+    // };
+
+    // //                                 [n_models]
+    // VkDescriptorSetLayout mat_layouts[2];
+    // for (uint32_t i = 0; i < 2; i++) mat_layouts[i] = graphics_pipeline.mat_set_lyt;
+
+    // VkDescriptorSetAllocateInfo material_set_alloc_info = {
+    //     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    //     .pNext = NULL,
+    //     .descriptorPool = graphics_pipeline.desc_pool,
+    //     .descriptorSetCount = 2, // n_models
+    //     .pSetLayouts = mat_layouts
+    // };
+
+    // //                        [frame_lag * n_models]
+    // VkDescriptorSet frame_sets[2 * 2];
+
+    // //                          [n_models]
+    // VkDescriptorSet material_sets[2];
+
+    // if (vkAllocateDescriptorSets(ctx.device, &frame_set_alloc_info, frame_sets) != VK_SUCCESS) {
+    //     printf("Failed to allocate descriptior set for uniforms.\n");
+    //     return 1;
+    // }
+
+    // if (vkAllocateDescriptorSets(ctx.device, &material_set_alloc_info, material_sets) != VK_SUCCESS) {
+    //     printf("Failed to allocate descriptior set for material.\n");
+    //     return 1;
+    // }
+
+    // for (size_t frame_i = 0; frame_i < frame_lag; frame_i++) {
+    //     for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
+    //         size_t ubo_idx = frame_i * n_models + mat_i;
+
+    //         VkDescriptorBufferInfo desc_buffer_info = {
+    //             .buffer = LV_ARRAY_PTR_AT(&uniforms, ubo_idx, lvBuffer)->_buffer,
+    //             .offset = 0,
+    //             .range = VK_WHOLE_SIZE
+    //         };
+
+    //         VkWriteDescriptorSet desc_write = {
+    //             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    //             .pNext = NULL,
+    //             .dstSet = frame_sets[ubo_idx],
+    //             .dstBinding = 0,
+    //             .dstArrayElement = 0,
+    //             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    //             .descriptorCount = 1,
+    //             .pBufferInfo = &desc_buffer_info,
+    //             .pImageInfo = NULL,
+    //             .pTexelBufferView = NULL
+    //         };
+
+    //         vkUpdateDescriptorSets(ctx.device, 1, &desc_write, 0, NULL);
+    //     }
+    // }
+
+    // for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
+    //     lvImage image = *((lvImage *)textures.data[mat_i]);
+    //     VkDescriptorImageInfo desc_image_info = {
+    //         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    //         .imageView = image.view,
+    //         .sampler = image.sampler,
+    //     };
+
+    //     VkWriteDescriptorSet desc_write_img = {
+    //         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    //         .pNext = NULL,
+    //         .dstSet = material_sets[mat_i],
+    //         .dstBinding = 0,
+    //         .dstArrayElement = 0,
+    //         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    //         .descriptorCount = 1,
+    //         .pBufferInfo = NULL,
+    //         .pImageInfo = &desc_image_info,
+    //         .pTexelBufferView = NULL
+    //     };
+
+    //     vkUpdateDescriptorSets(ctx.device, 1, &desc_write_img, 0, NULL);
+    // }
+
+
+
 
 
     lvClock clock = lvClock_new();
@@ -599,15 +578,12 @@ int main(int argc, char *argv[]) {
         record_cmd_buf(
             &ctx,
             &swapchain,
-            &graphics_buffers,
+            &scene,
             &graphics_pipeline,
-            n_verts,
-            index_buffer,
             cmd_buf,
             image_idx,
             frame_idx_sync,
-            depth_texture.image,
-            depth_texture.view
+            depth_texture
         );
 
         VkSemaphore sem_render_finished = LV_ARRAY_AT(&swapchain.sem_present, image_idx, VkSemaphore);
@@ -632,40 +608,61 @@ int main(int argc, char *argv[]) {
 
 
         // UPDATE UNIFORMS
+        
+        for (size_t model_i = 0; model_i < scene.models.size; model_i++) {
+            lvModel *model = LV_ARRAY_PTR_AT(&scene.models, model_i, lvModel);
 
-        UniformBuffer ubo = {
-            GLM_MAT4_IDENTITY_INIT,
-            GLM_MAT4_IDENTITY_INIT,
-            GLM_MAT4_IDENTITY_INIT
-        };
+            MVP ubo = {
+                GLM_MAT4_IDENTITY_INIT,
+                GLM_MAT4_IDENTITY_INIT,
+                GLM_MAT4_IDENTITY_INIT
+            };
 
-        float time = (float)lvPrecisionTimer_stop(&timer);
+            float time = (float)lvPrecisionTimer_stop(&timer);
 
-        float scale = 0.8f;
-        glm_scale(ubo.model, (vec3){scale, scale, scale});
+            float scale = 1.0f;
 
-        glm_rotate(
-            ubo.model,
-            glm_rad(90.0f),
-            (vec3){1.0f, 0.0f, 0.0f}
-        );
+            if (model_i == 1) {
+                scale = 0.2f;
+                glm_translate(ubo.model, (vec3){0.0f, 0.0f, 0.85f});
+            }
 
-        glm_rotate(
-            ubo.model,
-            glm_rad(-time * 90.0f),
-            (vec3){0.0f, 1.0f, 0.0f}
-        );
-        glm_lookat((vec3){2.0f, 2.0f, 2.0f}, (vec3){0.0f, 0.0f, 0.5f}, (vec3){0.0f, 0.0f, 1.0f}, ubo.view);
-        glm_perspective(
-            45.0f * 0.0174533f,
-            (float)swapchain.extent.width / (float)swapchain.extent.height,
-            0.1f,
-            100.0f,
-            ubo.proj
-        );
-        ubo.proj[1][1] *= -1.0f;
+            glm_scale(ubo.model, (vec3){scale, scale, scale});
 
-        memcpy(uniform_mappings.data[frame_idx_sync], &ubo, sizeof(ubo));
+            glm_rotate(
+                ubo.model,
+                glm_rad(90.0f),
+                (vec3){1.0f, 0.0f, 0.0f}
+            );
+
+            glm_rotate(
+                ubo.model,
+                glm_rad(-time * 90.0f),
+                (vec3){0.0f, 1.0f, 0.0f}
+            );
+
+
+            vec3 lookat_target;
+            glm_vec3_add(camera.position, camera.dir, lookat_target);
+            glm_lookat(camera.position, lookat_target, camera.up, ubo.view);
+            glm_perspective(
+                camera.fov * 0.0174533f,
+                (float)swapchain.extent.width / (float)swapchain.extent.height,
+                camera.near_z,
+                camera.far_z,
+                ubo.proj
+            );
+            ubo.proj[1][1] *= -1.0f;
+
+            if (lvGraphicsPipeline_set_uniform(
+                &graphics_pipeline,
+                "MVP",
+                &ubo,
+                (size_t[2]){frame_idx_sync, model_i}
+            ) != 0) {
+                lv_fatal("Failed to set uniform.");
+            }
+        }
 
 
         // PRESENT FRAME
@@ -691,35 +688,21 @@ int main(int argc, char *argv[]) {
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
 
-    lvOBJ_free(&obj);
+    lvRefArray_free(&textures);
 
     lvImage_free(&depth_texture, &ctx);
 
-    vkDestroySampler(ctx.device, texture_sampler, NULL);
-    lvImage_free(&texture, &ctx);
+    lvImage_free(&texture0, &ctx);
+    lvImage_free(&texture1, &ctx);
 
-    for (size_t i = 0; i < frame_lag; i++) {
-        vmaUnmapMemory(ctx.allocator, LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation);
-
-        vmaDestroyBuffer(
-            ctx.allocator,
-            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_buffer,
-            LV_ARRAY_PTR_AT(&uniforms, i, lvBuffer)->_allocation
-        );
-    }
-    lvArray_free(&uniforms);
-    lvRefArray_free(&uniform_mappings);
-
-    vmaDestroyBuffer(ctx.allocator, index_buffer._buffer, index_buffer._allocation);
-    vmaDestroyBuffer(ctx.allocator, vertex_buffer._buffer, vertex_buffer._allocation);
-    vmaDestroyBuffer(ctx.allocator, uv_buffer._buffer, uv_buffer._allocation);
-    vmaDestroyBuffer(ctx.allocator, normal_buffer._buffer, normal_buffer._allocation);
+    lvOBJ_free(&table_obj);
+    lvOBJ_free(&bunny_obj);
+    lvScene_free(&scene, &ctx);
 
     vkDestroyCommandPool(ctx.device, ctx.cmd_pool, NULL);
     lvArray_free(&cmd_bufs);
 
     lvGraphicsPipeline_free(&graphics_pipeline, &ctx);
-    lvRefArray_free(&graphics_buffers);
 
     lvContext_free(&ctx);
     SDL_DestroyWindow(window);
