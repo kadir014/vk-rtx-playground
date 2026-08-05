@@ -3,41 +3,76 @@ import platform
 import subprocess
 
 
-if __name__ == "__main__":
-    shaders = Path.cwd() / "shaders"
+SHADERS_DIR = Path.cwd() / "shaders"
 
-    # TODO: Locate glslc from the SDK path
+# Shader file extensions, spv is ignored
+SPIRV = {".spv", ".spirv", ".spir-v", ".spir_v"}
+VERTEX = {".vsh", ".vert", ".vertex"}
+TESS_CONT = {".tscsh", ".tesc", ".tesscont"}
+TESS_EVAL = {".tsesh", ".tese", ".tesseval"}
+GEOMETRY = {".gsh", ".geo", ".geometry"}
+FRAGMENT = {".fsh", ".frag", ".fragment"}
+COMPUTE = {".csh", ".comp", ".compute"}
+
+
+def locate(binary: str) -> str:
     if platform.system() == "Windows":
-        binary = "glslc.exe"
+        win_binary = f"{binary}.exe"
+
+        try:
+            path = subprocess.check_output(f"where {win_binary}", shell=True)
+        except subprocess.CalledProcessError:
+            raise Exception(f"Could not locate {win_binary}, make sure you have the Vulkan SDK installed properly.")
+        
+        return path.decode("utf-8").strip()
     else:
-        binary = "glslc"
+        try:
+            path = subprocess.check_output(f"which {binary}", shell=True)
+        except subprocess.CalledProcessError:
+            raise Exception(f"Could not locate {binary}, make sure you have the Vulkan SDK installed properly.")
+        
+        return path.decode("utf-8").strip()
+
+
+def main():
+    glslc = locate("glslc")
 
     args = "\"{input}\" -x glsl -fshader-stage={stage} -O -o \"{output}\""
-    cmd = f"{binary} {args}"
+    cmd = f"\"{glslc}\" {args}"
 
-    for root, _, files in shaders.walk():
+    for root, _, files in SHADERS_DIR.walk():
         for file in files:
             input = root / file
 
-            if input.suffix in {".spv", ".spirv", ".spir-v"}:
+            suffix = input.suffix.lower().strip()
+
+            if suffix in SPIRV:
                 continue
 
             stage = ""
             ext = ""
 
-            if input.suffix in {".vsh", ".vert", ".vertex"}:
+            if suffix in VERTEX:
                 stage = "vertex"
                 ext = "vert"
 
-            elif input.suffix in {".fsh", ".frag", ".fragment"}:
-                stage = "fragment"
-                ext = "frag"
+            elif suffix in TESS_CONT:
+                stage = "tesscontrol"
+                ext = "tesc"
 
-            elif input.suffix in {".gsh", ".geo", ".geometry"}:
+            elif suffix in TESS_EVAL:
+                stage = "tesseval"
+                ext = "tese"
+
+            elif suffix in GEOMETRY:
                 stage = "geometry"
                 ext = "geo"
 
-            elif input.suffix in {".csh", ".comp", ".compute"}:
+            elif suffix in FRAGMENT:
+                stage = "fragment"
+                ext = "frag"
+
+            elif suffix in COMPUTE:
                 stage = "compute"
                 ext = "comp"
 
@@ -48,6 +83,10 @@ if __name__ == "__main__":
             output = root / f"{input.stem}.{ext}.spv"
 
             rendered = cmd.format(input=input, stage=stage, output=output)
-            subprocess.run(rendered)
+            subprocess.run(rendered, shell=True)
 
             print(f"[SUCCESS] Compiled '{input}'.")
+
+
+if __name__ == "__main__":
+    main()
