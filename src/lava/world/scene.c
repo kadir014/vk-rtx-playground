@@ -7,7 +7,6 @@ lvScene lvScene_new(lvCamera *camera) {
 
     scene.camera = camera;
 
-    scene.model_names = lvArray_new(sizeof(char[64]));
     scene.models = lvArray_new(sizeof(lvModel));
 
     scene.materials = lvRefArray_new();
@@ -30,7 +29,6 @@ void lvScene_free(lvScene *scene, lvContext *ctx) {
         lvRefArray_free(&model->materials);
     }
 
-    lvArray_free(&scene->model_names);
     lvArray_free(&scene->models);
 
     lvRefArray_free(&scene->materials);
@@ -40,11 +38,12 @@ int lvScene_add_model(
     lvScene *scene,
     lvContext *ctx,
     lvOBJ *obj,
-    const char name[LV_SCENE_MODEL_NAME_LENGTH]
+    const char name[LV_MODEL_NAME_LENGTH]
 ) {
     if (!scene || !ctx || !obj || !name) return 1;
 
     lvModel model = {0};
+    memcpy(model.name, name, sizeof(char) * LV_MODEL_NAME_LENGTH);
     model.xform = (lvTransform){
         {0.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 0.0f},
@@ -63,17 +62,15 @@ int lvScene_add_model(
     if (lvRefArray_add(&model.meshes, mesh) != 0) return 1;
 
     if (lvArray_add(&scene->models, &model) != 0) return 1;
-    if (lvArray_add(&scene->model_names, &name) != 0) return 1;
 
     return 0;
 }
 
 lvModel *lvScene_get_model(lvScene *scene, const char *name) {
-    for (size_t i = 0; i < scene->model_names.size; i++) {
+    for (size_t i = 0; i < scene->models.size; i++) {
         lvModel *model = LV_ARRAY_PTR_AT(&scene->models, i, lvModel);
-        char **model_name = LV_ARRAY_PTR_AT(&scene->model_names, i, char *);
 
-        if (strcmp(*model_name, name) == 0) {
+        if (strcmp(model->name, name) == 0) {
             return model;
         }
     }

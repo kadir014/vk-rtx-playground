@@ -8,7 +8,12 @@
 #include "lava/world/material.h"
 
 
+
+#define LV_MODEL_NAME_LENGTH 64
+
+
 typedef struct {
+    char name[LV_MODEL_NAME_LENGTH];
     lvTransform xform;
     lvRefArray meshes;
     lvRefArray materials;

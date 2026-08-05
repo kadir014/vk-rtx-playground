@@ -9,13 +9,8 @@
 #include "lava/loaders/obj.h"
 
 
-#define LV_SCENE_MODEL_NAME_LENGTH 64
-
-
 typedef struct {
     lvCamera *camera;
-    // Use a hashmap :(
-    lvArray model_names;
     lvArray models;
     lvRefArray materials;
 } lvScene;
@@ -28,7 +23,7 @@ int lvScene_add_model(
     lvScene *scene,
     lvContext *ctx,
     lvOBJ *obj,
-    const char name[LV_SCENE_MODEL_NAME_LENGTH]
+    const char name[LV_MODEL_NAME_LENGTH]
 );
 
 lvModel *lvScene_get_model(lvScene *scene, const char *name);

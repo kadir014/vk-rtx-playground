@@ -291,7 +291,7 @@ int main(int argc, char *argv[]) {
 
     lvPrecisionTimer_start(&obj_timer);
     lvOBJ bunny_obj = lvOBJ_load(
-        "../assets/models/stanford_bunny_low_poly.obj"
+        "../assets/models/stanford_bunny_high_poly.obj"
     );
     obj_elapsed = lvPrecisionTimer_stop(&obj_timer);
     if (!bunny_obj.loaded) {
@@ -323,11 +323,49 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to add model to scene.");
     }
 
-    if (lvScene_add_model(&scene, &ctx, &bunny_obj, "Bunny") != 0) {
-        lv_fatal("Failed to add model to scene.");
+    size_t extent = 2;
+    for (size_t y = 0; y < extent; y++) {
+        for (size_t x = 0; x < extent; x++) {
+            char name[LV_MODEL_NAME_LENGTH];
+            sprintf(name, "Bunny%zu", y * extent + x);
+
+            if (lvScene_add_model(&scene, &ctx, &bunny_obj, name) != 0) {
+                lv_fatal("Failed to add model to scene.");
+            }
+
+            lvModel *model = lvScene_get_model(&scene, name);
+            if (!model) {
+                lv_fatal("Model not found: %s", name);
+            }
+
+            model->xform.scale[0] = 0.03f;
+            model->xform.scale[1] = 0.03f;
+            model->xform.scale[2] = 0.03f;
+            model->xform.position[0] = (float)x * 0.2;
+            model->xform.position[1] = 0.0f;
+            model->xform.position[2] = 1.0f + (float)y * 0.2;
+        }
     }
 
-    printf("Scene is setup! %zu\n", scene.models.size);
+    size_t total_tris = 0;
+    size_t total_vertices = 0;
+    for (size_t i = 0; i < scene.models.size; i++) {
+        lvModel *model = LV_ARRAY_PTR_AT(&scene.models, i, lvModel);
+        size_t vertices = ((lvMesh *)(model->meshes.data[0]))->n_vertices;
+        total_vertices += vertices;
+        total_tris += vertices / 3;
+    }
+
+    printf(
+        "Scene is setup!\n"
+        "- Models: %zu\n"
+        "- Tris:   %zu\n"
+        "- Verts:  %zu\n"
+        "\n",
+        scene.models.size,
+        total_tris,
+        total_vertices
+    );
 
 
     const char *texture_path = "../assets/textures/table_albedo.png";
@@ -423,102 +461,6 @@ int main(int argc, char *argv[]) {
     lvRefArray_add(&textures, &texture1);
 
 
-    // //                                 [frame_lag * n_models]
-    // VkDescriptorSetLayout frame_layouts[2 * 2];
-    // for (uint32_t i = 0; i < frame_lag * n_models; i++) frame_layouts[i] = graphics_pipeline.frame_set_lyt;
-
-
-    // VkDescriptorSetAllocateInfo frame_set_alloc_info = {
-    //     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-    //     .pNext = NULL,
-    //     .descriptorPool = graphics_pipeline.desc_pool,
-    //     .descriptorSetCount = frame_lag * n_models,
-    //     .pSetLayouts = frame_layouts
-    // };
-
-    // //                                 [n_models]
-    // VkDescriptorSetLayout mat_layouts[2];
-    // for (uint32_t i = 0; i < 2; i++) mat_layouts[i] = graphics_pipeline.mat_set_lyt;
-
-    // VkDescriptorSetAllocateInfo material_set_alloc_info = {
-    //     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-    //     .pNext = NULL,
-    //     .descriptorPool = graphics_pipeline.desc_pool,
-    //     .descriptorSetCount = 2, // n_models
-    //     .pSetLayouts = mat_layouts
-    // };
-
-    // //                        [frame_lag * n_models]
-    // VkDescriptorSet frame_sets[2 * 2];
-
-    // //                          [n_models]
-    // VkDescriptorSet material_sets[2];
-
-    // if (vkAllocateDescriptorSets(ctx.device, &frame_set_alloc_info, frame_sets) != VK_SUCCESS) {
-    //     printf("Failed to allocate descriptior set for uniforms.\n");
-    //     return 1;
-    // }
-
-    // if (vkAllocateDescriptorSets(ctx.device, &material_set_alloc_info, material_sets) != VK_SUCCESS) {
-    //     printf("Failed to allocate descriptior set for material.\n");
-    //     return 1;
-    // }
-
-    // for (size_t frame_i = 0; frame_i < frame_lag; frame_i++) {
-    //     for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
-    //         size_t ubo_idx = frame_i * n_models + mat_i;
-
-    //         VkDescriptorBufferInfo desc_buffer_info = {
-    //             .buffer = LV_ARRAY_PTR_AT(&uniforms, ubo_idx, lvBuffer)->_buffer,
-    //             .offset = 0,
-    //             .range = VK_WHOLE_SIZE
-    //         };
-
-    //         VkWriteDescriptorSet desc_write = {
-    //             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    //             .pNext = NULL,
-    //             .dstSet = frame_sets[ubo_idx],
-    //             .dstBinding = 0,
-    //             .dstArrayElement = 0,
-    //             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    //             .descriptorCount = 1,
-    //             .pBufferInfo = &desc_buffer_info,
-    //             .pImageInfo = NULL,
-    //             .pTexelBufferView = NULL
-    //         };
-
-    //         vkUpdateDescriptorSets(ctx.device, 1, &desc_write, 0, NULL);
-    //     }
-    // }
-
-    // for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
-    //     lvImage image = *((lvImage *)textures.data[mat_i]);
-    //     VkDescriptorImageInfo desc_image_info = {
-    //         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    //         .imageView = image.view,
-    //         .sampler = image.sampler,
-    //     };
-
-    //     VkWriteDescriptorSet desc_write_img = {
-    //         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    //         .pNext = NULL,
-    //         .dstSet = material_sets[mat_i],
-    //         .dstBinding = 0,
-    //         .dstArrayElement = 0,
-    //         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    //         .descriptorCount = 1,
-    //         .pBufferInfo = NULL,
-    //         .pImageInfo = &desc_image_info,
-    //         .pTexelBufferView = NULL
-    //     };
-
-    //     vkUpdateDescriptorSets(ctx.device, 1, &desc_write_img, 0, NULL);
-    // }
-
-
-
-
-
     lvClock clock = lvClock_new();
 
     lvPrecisionTimer timer;
@@ -612,28 +554,27 @@ int main(int argc, char *argv[]) {
         for (size_t model_i = 0; model_i < scene.models.size; model_i++) {
             lvModel *model = LV_ARRAY_PTR_AT(&scene.models, model_i, lvModel);
 
+            //printf("updating %zu: %s\n", model_i, model_name);
+
             MVP ubo = {
                 GLM_MAT4_IDENTITY_INIT,
                 GLM_MAT4_IDENTITY_INIT,
                 GLM_MAT4_IDENTITY_INIT
             };
 
-            float time = (float)lvPrecisionTimer_stop(&timer);
-
-            float scale = 1.0f;
-
-            if (model_i == 1) {
-                scale = 0.2f;
-                glm_translate(ubo.model, (vec3){0.0f, 0.0f, 0.85f});
-            }
-
-            glm_scale(ubo.model, (vec3){scale, scale, scale});
+            
+            glm_translate(ubo.model, model->xform.position);
+            //glm_euler_xyz(model->xform.rotation, ubo.model);
+            glm_scale(ubo.model, model->xform.scale);
+            
 
             glm_rotate(
                 ubo.model,
                 glm_rad(90.0f),
                 (vec3){1.0f, 0.0f, 0.0f}
             );
+
+            float time = (float)lvPrecisionTimer_stop(&timer);
 
             glm_rotate(
                 ubo.model,
