@@ -18,6 +18,7 @@ typedef struct {
     VkShaderStageFlagBits stages;
     uint32_t binding;
     size_t size;
+    lvImage image;
 } lvGraphicsPipelineResourceDefinition;
 
 typedef struct {
@@ -26,6 +27,7 @@ typedef struct {
 
     size_t n_models;
     size_t n_materials;
+    lvMaterial *materials;
 
     lvArray shader_modules;
     lvArray shader_stage_infos;
@@ -81,6 +83,12 @@ typedef struct {
 } lvGraphicsPipelineUniformSlot;
 
 typedef struct {
+    char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH];
+    size_t idx[2];
+    lvImage image;
+} lvGraphicsPipelineSamplerSlot;
+
+typedef struct {
     VkPipeline pipeline;
     VkPipelineLayout layout;
     VkDescriptorPool desc_pool;
@@ -95,8 +103,9 @@ typedef struct {
     VkDescriptorSet *object_sets;
     VkDescriptorSet *static_sets;
 
-    // TODO: Needs a name->slot hashmap, but this is OK for now...
+    // TODO: Needs a name -> slot hashmap, but this is OK for now...
     lvRefArray uniform_slots;
+    lvRefArray sampler_slots;
 } lvGraphicsPipeline;
 
 int lvGraphicsPipelineBuilder_build(
@@ -122,6 +131,12 @@ int lvGraphicsPipeline_set_uniform(
     const char *name,
     void *data,
     size_t idx[2]
+);
+
+int lvGraphicsPipeline_bind_sampler(
+    lvGraphicsPipeline *pipeline,
+    VkCommandBuffer cmd_buf,
+    const char *name
 );
 
 

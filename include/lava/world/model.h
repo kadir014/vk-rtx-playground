@@ -9,14 +9,14 @@
 
 
 
-#define LV_MODEL_NAME_LENGTH 64
+#define LV_MODEL_NAME_LENGTH 16
 
 
 typedef struct {
     char name[LV_MODEL_NAME_LENGTH];
     lvTransform xform;
     lvRefArray meshes;
-    lvRefArray materials;
+    char material_name[LV_MATERIAL_NAME_LENGTH];
 } lvModel;
 
 

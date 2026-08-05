@@ -47,6 +47,7 @@ lvGraphicsPipelineBuilder lvGraphicsPipelineBuilder_new(
 
     builder.n_models = scene->models.size;
     builder.n_materials = scene->materials.size;
+    builder.materials = scene->materials.data;
 
     builder.shader_modules = lvArray_new(sizeof(VkShaderModule));
     builder.shader_stage_infos = lvArray_new(sizeof(VkPipelineShaderStageCreateInfo));
@@ -133,7 +134,7 @@ int lvGraphicsPipelineBuilder_build(
     lvArray static_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
 
     size_t global_copies   = builder->set0_accumulate > 0 ? frame_lag : 0;
-    size_t material_copies = builder->set1_accumulate > 0 ? frame_lag * n_materials : 0;
+    size_t material_copies = builder->set1_accumulate > 0 ? 1 * n_materials : 0;
     size_t object_copies   = builder->set2_accumulate > 0 ? frame_lag * n_models : 0;
     size_t static_copies   = builder->set3_accumulate > 0 ? 1 : 0;
 
@@ -394,6 +395,7 @@ int lvGraphicsPipelineBuilder_build(
     // definitions again, but I'm happy with this for now
     
     pipeline->uniform_slots = lvRefArray_new();
+    pipeline->sampler_slots = lvRefArray_new();
 
     for (size_t i = 0; i < builder->resource_defs.size; i++) {
         lvGraphicsPipelineResourceDefinition resource_def = LV_ARRAY_AT(
@@ -437,7 +439,7 @@ int lvGraphicsPipelineBuilder_build(
                 case LV_RESOURCE_FREQ_MATERIAL:
                     uniform_sets = pipeline->material_sets;
                     w = n_materials;
-                    h = frame_lag;
+                    h = 1;
                     break;
                 case LV_RESOURCE_FREQ_OBJECT:
                     uniform_sets = pipeline->object_sets;
@@ -536,31 +538,79 @@ int lvGraphicsPipelineBuilder_build(
                 }
             }
         }
+        else if (resource_def.type == LV_RESOURCE_TYPE_SAMPLER) {
+            size_t w = 0;
+            size_t h = 0;
+            VkDescriptorSet *sampler_sets = NULL;
+
+            switch (resource_def.freq) {
+                case LV_RESOURCE_FREQ_GLOBAL:
+                    sampler_sets = pipeline->global_sets;
+                    w = frame_lag;
+                    h = frame_lag;
+                    break;
+                case LV_RESOURCE_FREQ_MATERIAL:
+                    sampler_sets = pipeline->material_sets;
+                    w = n_materials;
+                    h = 1;
+                    break;
+                case LV_RESOURCE_FREQ_OBJECT:
+                    sampler_sets = pipeline->object_sets;
+                    w = n_models;
+                    h = frame_lag;
+                    break;
+                case LV_RESOURCE_FREQ_STATIC:
+                    sampler_sets = pipeline->static_sets;
+                    w = 1;
+                    h = 1;
+                    break;
+            }
+
+            for (size_t y = 0; y < h; y++) {
+                for (size_t x = 0; x < w; x++) {
+
+                    lvGraphicsPipelineSamplerSlot *sampler_slot = LV_MALLOC(sizeof(lvGraphicsPipelineSamplerSlot));
+                    if (!sampler_slot) {
+                        printf("Failed to allocate for sampler slot.\n");
+                        return 1;
+                    }
+
+                    size_t idx2d[2] = {y, x};
+                    memcpy(sampler_slot->idx, idx2d, sizeof(idx2d) * 2);
+
+                    char *material_name_at_x = builder->materials[x].name;
+                    memcpy(sampler_slot->name, material_name_at_x, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
+
+                    sampler_slot->image = builder->materials[x].image;
+
+                    VkDescriptorImageInfo desc_image_info = {
+                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        .imageView = sampler_slot->image.view,
+                        .sampler = sampler_slot->image.sampler,
+                    };
+
+                    lvRefArray_add(&pipeline->sampler_slots, sampler_slot);
+
+                    size_t set_idx = y * w + x;
+
+                    VkWriteDescriptorSet desc_write_img = {
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext = NULL,
+                        .dstSet = sampler_sets[set_idx],
+                        .dstBinding = resource_def.binding,
+                        .dstArrayElement = 0,
+                        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        .descriptorCount = 1,
+                        .pBufferInfo = NULL,
+                        .pImageInfo = &desc_image_info,
+                        .pTexelBufferView = NULL
+                    };
+
+                    vkUpdateDescriptorSets(ctx->device, 1, &desc_write_img, 0, NULL);
+                }
+            }
+        }
     }
-
-    // for (size_t mat_i = 0; mat_i < n_models; mat_i++) {
-    //     lvImage image = *((lvImage *)textures.data[mat_i]);
-    //     VkDescriptorImageInfo desc_image_info = {
-    //         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    //         .imageView = image.view,
-    //         .sampler = image.sampler,
-    //     };
-
-    //     VkWriteDescriptorSet desc_write_img = {
-    //         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    //         .pNext = NULL,
-    //         .dstSet = material_sets[mat_i],
-    //         .dstBinding = 0,
-    //         .dstArrayElement = 0,
-    //         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    //         .descriptorCount = 1,
-    //         .pBufferInfo = NULL,
-    //         .pImageInfo = &desc_image_info,
-    //         .pTexelBufferView = NULL
-    //     };
-
-    //     vkUpdateDescriptorSets(ctx.device, 1, &desc_write_img, 0, NULL);
-    // }
 
 
     // COLLECT VERTEX BUFFER BINDINGS AND ATTRIBUTES
@@ -806,6 +856,12 @@ void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx) {
     }
     lvRefArray_free(&pipeline->uniform_slots);
 
+    for (size_t i = 0; i < pipeline->sampler_slots.size; i++) {
+        lvGraphicsPipelineUniformSlot *sampler_slot = pipeline->sampler_slots.data[i];
+        LV_FREE(sampler_slot);
+    }
+    lvRefArray_free(&pipeline->sampler_slots);
+
     LV_FREE(pipeline->global_sets);
     LV_FREE(pipeline->material_sets);
     LV_FREE(pipeline->object_sets);
@@ -852,6 +908,48 @@ int lvGraphicsPipeline_set_uniform(
     size_t obj_idx = idx[1];
 
     memcpy(found_slot->mapped, data, found_slot->size);
+
+    return 0;
+}
+
+int lvGraphicsPipeline_bind_sampler(
+    lvGraphicsPipeline *pipeline,
+    VkCommandBuffer cmd_buf,
+    const char *name
+) {
+    lvGraphicsPipelineSamplerSlot *found_slot = NULL;
+    for (size_t i = 0; i < pipeline->sampler_slots.size; i++) {
+        lvGraphicsPipelineSamplerSlot *slot = pipeline->sampler_slots.data[i];
+
+        if (
+            strcmp(slot->name, name) == 0
+            //slot->idx[0] == idx[0] &&
+            //slot->idx[1] == idx[1]
+        ) {
+            found_slot = slot;
+            break;
+        }
+    }
+
+    if (!found_slot) {
+        return 1;
+    }
+
+    size_t frame_idx = found_slot->idx[0];
+    size_t mat_idx = found_slot->idx[1];
+    // TODO:                     2 değil n_materials veya hangi FREQUENCY ISE
+    size_t set_idx = frame_idx * 2 + mat_idx;
+
+    vkCmdBindDescriptorSets(
+        cmd_buf,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline->layout,
+        1,              // firstSet TODO: GET FROM FREQUENCY
+        1,              // set count
+        &pipeline->material_sets[set_idx], // material_sets değil! hangi freq ise
+        0,
+        NULL
+    );
 
     return 0;
 }

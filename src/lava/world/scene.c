@@ -9,7 +9,7 @@ lvScene lvScene_new(lvCamera *camera) {
 
     scene.models = lvArray_new(sizeof(lvModel));
 
-    scene.materials = lvRefArray_new();
+    scene.materials = lvArray_new(sizeof(lvMaterial));
 
     return scene;
 }
@@ -26,33 +26,38 @@ void lvScene_free(lvScene *scene, lvContext *ctx) {
             LV_FREE(mesh);
         }
         lvRefArray_free(&model->meshes);
-        lvRefArray_free(&model->materials);
     }
 
     lvArray_free(&scene->models);
 
-    lvRefArray_free(&scene->materials);
+    lvArray_free(&scene->materials);
 }
 
 int lvScene_add_model(
     lvScene *scene,
     lvContext *ctx,
     lvOBJ *obj,
-    const char name[LV_MODEL_NAME_LENGTH]
+    const char name[LV_MODEL_NAME_LENGTH],
+    const char material_name[LV_MATERIAL_NAME_LENGTH]
 ) {
     if (!scene || !ctx || !obj || !name) return 1;
 
     lvModel model = {0};
+
     memcpy(model.name, name, sizeof(char) * LV_MODEL_NAME_LENGTH);
+
+    if (material_name) {
+        memcpy(model.material_name, material_name, sizeof(char) * LV_MATERIAL_NAME_LENGTH);
+    }
+
     model.xform = (lvTransform){
         {0.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 0.0f},
         {1.0f, 1.0f, 1.0f}
     };
+
     model.meshes = lvRefArray_new();
     if (!lvRefArray_valid(&model.meshes)) return 1;
-    model.materials = lvRefArray_new();
-    if (!lvRefArray_valid(&model.materials)) return 1;
 
     //for (size_t i = 0; i < obj->meshes; i++)
 
@@ -72,6 +77,37 @@ lvModel *lvScene_get_model(lvScene *scene, const char *name) {
 
         if (strcmp(model->name, name) == 0) {
             return model;
+        }
+    }
+
+    return NULL;
+}
+
+int lvScene_add_material(
+    lvScene *scene,
+    lvContext *ctx,
+    lvImage image,
+    const char name[LV_MATERIAL_NAME_LENGTH]
+) {
+    if (!scene || !ctx || !name) return 1;
+
+    lvMaterial material = {0};
+
+    memcpy(material.name, name, sizeof(char) * LV_MATERIAL_NAME_LENGTH);
+
+    material.image = image;
+
+    if (lvArray_add(&scene->materials, &material) != 0) return 1;
+
+    return 0;
+}
+
+lvMaterial *lvScene_get_material(lvScene *scene, const char *name) {
+    for (size_t i = 0; i < scene->materials.size; i++) {
+        lvMaterial *material = LV_ARRAY_PTR_AT(&scene->materials, i, lvMaterial);
+
+        if (strcmp(material->name, name) == 0) {
+            return material;
         }
     }
 

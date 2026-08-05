@@ -119,12 +119,13 @@ void record_cmd_buf(
     for (size_t model_i = 0; model_i < scene->models.size; model_i++) {
         lvModel *model = LV_ARRAY_PTR_AT(&scene->models, model_i, lvModel);
         lvMesh *mesh = model->meshes.data[0];
+        lvMaterial *material = lvScene_get_material(scene, model->material_name);
 
         // y * w + x
         // y = frame_i
         // w = n_models
         // x = model_i
-        size_t ubo_idx = frame_idx_sync * scene->models.size + model_i;
+        size_t obj_idx = frame_idx_sync * scene->models.size + model_i;
 
         vk_buffers.size = 0;
         lvArray_add(&vk_buffers, &(mesh->vertices._buffer));
@@ -134,7 +135,13 @@ void record_cmd_buf(
         VkDeviceSize offsets[] = {0, 0, 0};
         vkCmdBindVertexBuffers(cmd_buf, 0, 3, (VkBuffer *)vk_buffers.data, offsets);
 
-        //VkDescriptorSet sets_to_bind[1] = {frame_sets[ubo_idx], mat_sets[mesh_i]};
+        if (material) {
+            lvGraphicsPipeline_bind_sampler(
+                graphics_pipeline,
+                cmd_buf,
+                material->name
+            );
+        }
 
         vkCmdBindDescriptorSets(
             cmd_buf,
@@ -142,10 +149,11 @@ void record_cmd_buf(
             graphics_pipeline->layout,
             2,              // firstSet
             1,              // set count
-            &graphics_pipeline->object_sets[ubo_idx],
-            0, NULL
+            &graphics_pipeline->object_sets[obj_idx],
+            0,
+            NULL
         );
-
+        
         vkCmdDraw(cmd_buf, mesh->n_vertices, 1, 0, 0);
     }
     lvArray_free(&vk_buffers);
@@ -275,19 +283,6 @@ int main(int argc, char *argv[]) {
         obj_elapsed * 1000.0
     );
     lvOBJMaterialPBR *mat = lvOBJ_get_material(&table_obj, "TableMat");
-    if (mat) {
-        printf(
-            "- Material:\n"
-            "  - Name:      %s\n"
-            "  - Roughness: %.2f\n"
-            "\n",
-            mat->name,
-            mat->roughness
-        );
-    }
-    else {
-        printf("- Material: None\n");
-    }
 
     lvPrecisionTimer_start(&obj_timer);
     lvOBJ bunny_obj = lvOBJ_load(
@@ -307,66 +302,6 @@ int main(int argc, char *argv[]) {
         bunny_obj.mesh.tris.size * 3,
         obj_elapsed * 1000.0
     );
-
-    lvCamera camera = {
-        .position = {1.4f, 1.4f, 1.4f},
-        .dir = {-1.0f, -1.0f, 0.0f},
-        .up = {0.0f, 0.0f, 1.0f},
-        .fov = 90.0f,
-        .near_z = 0.1f,
-        .far_z = 100.0f
-    };
-
-    lvScene scene = lvScene_new(&camera);
-
-    if (lvScene_add_model(&scene, &ctx, &table_obj, "Table") != 0) {
-        lv_fatal("Failed to add model to scene.");
-    }
-
-    size_t extent = 2;
-    for (size_t y = 0; y < extent; y++) {
-        for (size_t x = 0; x < extent; x++) {
-            char name[LV_MODEL_NAME_LENGTH];
-            sprintf(name, "Bunny%zu", y * extent + x);
-
-            if (lvScene_add_model(&scene, &ctx, &bunny_obj, name) != 0) {
-                lv_fatal("Failed to add model to scene.");
-            }
-
-            lvModel *model = lvScene_get_model(&scene, name);
-            if (!model) {
-                lv_fatal("Model not found: %s", name);
-            }
-
-            model->xform.scale[0] = 0.03f;
-            model->xform.scale[1] = 0.03f;
-            model->xform.scale[2] = 0.03f;
-            model->xform.position[0] = (float)x * 0.2;
-            model->xform.position[1] = 0.0f;
-            model->xform.position[2] = 1.0f + (float)y * 0.2;
-        }
-    }
-
-    size_t total_tris = 0;
-    size_t total_vertices = 0;
-    for (size_t i = 0; i < scene.models.size; i++) {
-        lvModel *model = LV_ARRAY_PTR_AT(&scene.models, i, lvModel);
-        size_t vertices = ((lvMesh *)(model->meshes.data[0]))->n_vertices;
-        total_vertices += vertices;
-        total_tris += vertices / 3;
-    }
-
-    printf(
-        "Scene is setup!\n"
-        "- Models: %zu\n"
-        "- Tris:   %zu\n"
-        "- Verts:  %zu\n"
-        "\n",
-        scene.models.size,
-        total_tris,
-        total_vertices
-    );
-
 
     const char *texture_path = "../assets/textures/table_albedo.png";
     lvImage texture0;
@@ -412,6 +347,73 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create image sampler 1.");
     }
 
+    lvCamera camera = {
+        .position = {1.4f, 1.4f, 1.4f},
+        .dir = {-1.0f, -1.0f, 0.0f},
+        .up = {0.0f, 0.0f, 1.0f},
+        .fov = 90.0f,
+        .near_z = 0.1f,
+        .far_z = 100.0f
+    };
+
+    lvScene scene = lvScene_new(&camera);
+
+    if (lvScene_add_material(&scene, &ctx, texture0, "TableMat") != 0) {
+        lv_fatal("Failed to create material");
+    }
+
+    if (lvScene_add_material(&scene, &ctx, texture1, "FlatMat") != 0) {
+        lv_fatal("Failed to create material");
+    }
+
+    if (lvScene_add_model(&scene, &ctx, &table_obj, "Table", "TableMat") != 0) {
+        lv_fatal("Failed to add model to scene.");
+    }
+
+    size_t extent = 2;
+    for (size_t y = 0; y < extent; y++) {
+        for (size_t x = 0; x < extent; x++) {
+            char name[LV_MODEL_NAME_LENGTH];
+            sprintf(name, "Bunny%zu", y * extent + x);
+
+            if (lvScene_add_model(&scene, &ctx, &bunny_obj, name, "FlatMat") != 0) {
+                lv_fatal("Failed to add model to scene.");
+            }
+
+            lvModel *model = lvScene_get_model(&scene, name);
+            if (!model) {
+                lv_fatal("Model not found: %s", name);
+            }
+
+            model->xform.scale[0] = 0.03f;
+            model->xform.scale[1] = 0.03f;
+            model->xform.scale[2] = 0.03f;
+            model->xform.position[0] = (float)x * 0.2;
+            model->xform.position[1] = 0.0f;
+            model->xform.position[2] = 1.0f + (float)y * 0.2;
+        }
+    }
+
+    size_t total_tris = 0;
+    size_t total_vertices = 0;
+    for (size_t i = 0; i < scene.models.size; i++) {
+        lvModel *model = LV_ARRAY_PTR_AT(&scene.models, i, lvModel);
+        size_t vertices = ((lvMesh *)(model->meshes.data[0]))->n_vertices;
+        total_vertices += vertices;
+        total_tris += vertices / 3;
+    }
+
+    printf(
+        "Scene is setup!\n"
+        "- Models: %zu\n"
+        "- Tris:   %zu\n"
+        "- Verts:  %zu\n"
+        "\n",
+        scene.models.size,
+        total_tris,
+        total_vertices
+    );
+
 
     lvGraphicsPipelineBuilder graphics_builder = lvGraphicsPipelineBuilder_new(&ctx, &scene);
 
@@ -455,10 +457,6 @@ int main(int argc, char *argv[]) {
     if (lvImage_init_depth(&depth_texture, &ctx, 0) != 0) {
         lv_fatal("Failed to create depth texture.");
     }
-
-    lvRefArray textures = lvRefArray_new();
-    lvRefArray_add(&textures, &texture0);
-    lvRefArray_add(&textures, &texture1);
 
 
     lvClock clock = lvClock_new();
@@ -628,8 +626,6 @@ int main(int argc, char *argv[]) {
 
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
-
-    lvRefArray_free(&textures);
 
     lvImage_free(&depth_texture, &ctx);
 
