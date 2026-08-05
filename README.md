@@ -5,7 +5,8 @@ My playground and toy framework trying to learn Vulkan and hopefully hardware ra
 
 # Installation & Running
 ### 📜 Prerequisites
-- Compiler that supports C99 & C++11
+- Compiler that supports C99 and C++11
+- [Python 3.12+](https://www.python.org/downloads/)
 - [Meson build system](https://mesonbuild.com/Getting-meson.html)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
 
@@ -15,7 +16,12 @@ $ git clone https://github.com/kadir014/vk-rtx-playground.git
 $ cd vk-rtx-playground
 ```
 
-**2.** Then setup the meson environment. If you want to build in release mode, you can use `--buildtype=release` ([See meson's build type options](https://mesonbuild.com/Builtin-options.html#details-for-buildtype)).
+**2.** Before building the project, start by compiling the shaders. This will also let you know if you have the Vulkan SDK properly installed.
+```shell
+$ python compile_shaders.py
+```
+
+**3.** Then setup the meson environment. If you want to build in release mode, you can use `--buildtype=release` ([See meson's build type options](https://mesonbuild.com/Builtin-options.html#details-for-buildtype)).
 ```shell
 $ meson setup build_dir --buildtype=debug --wipe
 ```
@@ -23,7 +29,7 @@ $ meson setup build_dir --buildtype=debug --wipe
 > [!IMPORTANT]
 > On Windows, you may need to run `meson setup` twice for SDL2 to install properly.
 
-**3.** Compile. If everything goes correctly, you should be able to run the binary.
+**4.** Compile. If everything goes correctly, you should be able to run the binary.
 ```shell
 $ cd build_dir
 $ meson compile
@@ -41,8 +47,9 @@ $ ./main
 # Attributions
 - [Stanford Bunny](https://graphics.stanford.edu/data/3Dscanrep/) — Stanford Computer Graphics Laboratory
 - [Low Poly Stanford Bunny](https://www.thingiverse.com/thing:151081) — Licensed under [CC-BY-NC](https://creativecommons.org/licenses/by-nc/4.0/)
+- ["Fantasy Table Low Poly Stylised" by Kadre](https://sketchfab.com/3d-models/fantasy-table-low-poly-stylised-50a4b86e49ce4b52a7068c79e7f04c06) — Licensed under [CC-BY](https://creativecommons.org/licenses/by/4.0/)
 - ["Derelict Airfield 02" HDRI sky texture](https://polyhaven.com/a/derelict_airfield_02) — Licensed under [CC0](https://polyhaven.com/license)
-- [Statue photograph by Rodrigo Curi](https://unsplash.com/photos/brown-concrete-statue-under-blue-sky-during-daytime-TqSgXhalVQ0) — Licensed under [Unsplash License](https://unsplash.com/license)
+- ["Statue photograph" by Rodrigo Curi](https://unsplash.com/photos/brown-concrete-statue-under-blue-sky-during-daytime-TqSgXhalVQ0) — Licensed under [Unsplash License](https://unsplash.com/license)
 
 
 
