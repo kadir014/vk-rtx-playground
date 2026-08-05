@@ -1,7 +1,7 @@
 # Blender 4.3.2 MTL File: 'None'
 # www.blender.org
 
-newmtl TableComb
+newmtl TableMat
 Ks 0.500000 0.500000 0.500000
 Ke 0.000000 0.000000 0.000000
 Ni 1.500000
@@ -12,7 +12,7 @@ Pc 0.000000
 Pcr 0.030000
 aniso 0.000000
 anisor 0.000000
-map_Kd fantasy-table/textures/TableComb_BaseColor.png
-map_Pm fantasy-table/textures/TableComb_Metallic.png
-map_Pr fantasy-table/textures/TableComb_Roughness.png
-map_Bump -bm 1.000000 fantasy-table/textures/TableComb_Normal.png
+map_Kd textures/table_albedo.png
+map_Pm textures/table_metallic.png
+map_Pr textures/table_roughness.png
+map_Bump -bm 1.000000 textures/table_normal.png
