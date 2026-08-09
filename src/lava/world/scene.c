@@ -50,11 +50,7 @@ int lvScene_add_model(
         memcpy(model.material_name, material_name, sizeof(char) * LV_MATERIAL_NAME_LENGTH);
     }
 
-    model.xform = (lvTransform){
-        {0.0f, 0.0f, 0.0f},
-        {0.0f, 0.0f, 0.0f},
-        {1.0f, 1.0f, 1.0f}
-    };
+    model.xform = lvTransform_identity;
 
     model.meshes = lvRefArray_new();
     if (!lvRefArray_valid(&model.meshes)) return 1;

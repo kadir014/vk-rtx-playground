@@ -9,9 +9,7 @@
 #include <SDL_image.h>
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
-#include "vk_mem_alloc.h"
-#define CGLM_FORCE_DEPTH_ZERO_TO_ONE
-#include "cglm/cglm.h"
+#include <vk_mem_alloc.h>
 
 #include "lava/lava.h"
 
@@ -181,9 +179,9 @@ void record_cmd_buf(
 
 
 typedef struct {
-    mat4 model;
-    mat4 view;
-    mat4 proj;
+    lvMatrix4 model;
+    lvMatrix4 view;
+    lvMatrix4 proj;
 } MVP;
 
 
@@ -347,14 +345,11 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create image sampler 1.");
     }
 
-    lvCamera camera = {
-        .position = {1.4f, 1.4f, 1.4f},
-        .dir = {-1.0f, -1.0f, 0.0f},
-        .up = {0.0f, 0.0f, 1.0f},
-        .fov = 90.0f,
-        .near_z = 0.1f,
-        .far_z = 100.0f
-    };
+    lvCamera camera = lvCamera_new_perspective(
+        (float)swapchain.extent.width / (float)swapchain.extent.height,
+        0.1f, 100.0f,
+        55.0f
+    );
 
     lvScene scene = lvScene_new(&camera);
 
@@ -370,7 +365,7 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to add model to scene.");
     }
 
-    size_t extent = 2;
+    size_t extent = 1;
     for (size_t y = 0; y < extent; y++) {
         for (size_t x = 0; x < extent; x++) {
             char name[LV_MODEL_NAME_LENGTH];
@@ -385,12 +380,12 @@ int main(int argc, char *argv[]) {
                 lv_fatal("Model not found: %s", name);
             }
 
-            model->xform.scale[0] = 0.03f;
-            model->xform.scale[1] = 0.03f;
-            model->xform.scale[2] = 0.03f;
-            model->xform.position[0] = (float)x * 0.2;
-            model->xform.position[1] = 0.0f;
-            model->xform.position[2] = 1.0f + (float)y * 0.2;
+            model->xform.scale.x = 0.2f;
+            model->xform.scale.y = 0.2f;
+            model->xform.scale.z = 0.2f;
+            model->xform.position.x = (float)x * 0.2;
+            model->xform.position.y = 0.85f + (float)y * 0.2;
+            model->xform.position.z = 0.0f;
         }
     }
 
@@ -432,8 +427,8 @@ int main(int argc, char *argv[]) {
     lvGraphicsPipelineBuilder_define_resource(
         &graphics_builder,
         "MVP",
-        LV_RESOURCE_TYPE_UNIFORM,
-        LV_RESOURCE_FREQ_OBJECT,
+        lvResourceType_UNIFORM,
+        lvResourceFreq_OBJECT,
         VK_SHADER_STAGE_VERTEX_BIT,
         sizeof(MVP)
     );
@@ -441,8 +436,8 @@ int main(int argc, char *argv[]) {
     lvGraphicsPipelineBuilder_define_resource(
         &graphics_builder,
         "Texture",
-        LV_RESOURCE_TYPE_SAMPLER,
-        LV_RESOURCE_FREQ_MATERIAL,
+        lvResourceType_SAMPLER,
+        lvResourceFreq_MATERIAL,
         VK_SHADER_STAGE_FRAGMENT_BIT,
         0
     );
@@ -458,6 +453,9 @@ int main(int argc, char *argv[]) {
         lv_fatal("Failed to create depth texture.");
     }
 
+    SDL_SetRelativeMouseMode(SDL_TRUE);
+    float mouse_sensitivity = 0.1f;
+
 
     lvClock clock = lvClock_new();
 
@@ -469,9 +467,10 @@ int main(int argc, char *argv[]) {
 
     bool is_running = true;
     while (is_running) {
-        lvClock_tick(&clock, 60);
+        lvClock_tick(&clock, 165);
 
         double dt = lvClock_get_delta_time(&clock);
+        float dtf = (float)dt;
         double fps = lvClock_get_fps(&clock);
 
         char title[64];
@@ -497,7 +496,35 @@ int main(int argc, char *argv[]) {
                     is_running = false;
                 }
             }
+
+            else if (event.type == SDL_MOUSEMOTION) {
+                camera.yaw += event.motion.xrel * mouse_sensitivity;
+                camera.pitch -= event.motion.yrel * mouse_sensitivity;
+            }
         }
+
+        const Uint8 *keys = SDL_GetKeyboardState(NULL);
+
+        if (keys[SDL_SCANCODE_W]) {
+            lvCamera_move(&camera, 5.0f * dtf);
+        }
+        if (keys[SDL_SCANCODE_S]) {
+            lvCamera_move(&camera, -5.0f * dtf);
+        }
+        if (keys[SDL_SCANCODE_E]) {
+            camera.position = lvVector3_add(camera.position, lvVector3_mul(camera.up, 5.0f * dtf));
+        }
+        if (keys[SDL_SCANCODE_Q]) {
+            camera.position = lvVector3_add(camera.position, lvVector3_mul(camera.up, -5.0f * dtf));
+        }
+        if (keys[SDL_SCANCODE_A]) {
+            lvCamera_strafe(&camera, -5.0f * dtf);
+        }
+        if (keys[SDL_SCANCODE_D]) {
+            lvCamera_strafe(&camera, 5.0f * dtf);
+        }
+
+        lvCamera_update(&camera);
 
 
         // DRAW FRAME
@@ -555,43 +582,31 @@ int main(int argc, char *argv[]) {
             //printf("updating %zu: %s\n", model_i, model_name);
 
             MVP ubo = {
-                GLM_MAT4_IDENTITY_INIT,
-                GLM_MAT4_IDENTITY_INIT,
-                GLM_MAT4_IDENTITY_INIT
+                lvMatrix4_identity,
+                lvMatrix4_identity,
+                lvMatrix4_identity
             };
 
+            // glm_mat4_copy(camera.proj_mat, ubo.proj);
+            // glm_mat4_copy(camera.view_mat, ubo.view);
+
             
-            glm_translate(ubo.model, model->xform.position);
-            //glm_euler_xyz(model->xform.rotation, ubo.model);
-            glm_scale(ubo.model, model->xform.scale);
-            
-
-            glm_rotate(
-                ubo.model,
-                glm_rad(90.0f),
-                (vec3){1.0f, 0.0f, 0.0f}
-            );
-
-            float time = (float)lvPrecisionTimer_stop(&timer);
-
-            glm_rotate(
-                ubo.model,
-                glm_rad(-time * 90.0f),
-                (vec3){0.0f, 1.0f, 0.0f}
-            );
+            // glm_translate(ubo.model, model->xform.position);
+            // //glm_euler_xyz(model->xform.rotation, ubo.model);
+            // glm_scale(ubo.model, model->xform.scale);
 
 
-            vec3 lookat_target;
-            glm_vec3_add(camera.position, camera.dir, lookat_target);
-            glm_lookat(camera.position, lookat_target, camera.up, ubo.view);
-            glm_perspective(
-                camera.fov * 0.0174533f,
-                (float)swapchain.extent.width / (float)swapchain.extent.height,
-                camera.near_z,
-                camera.far_z,
-                ubo.proj
-            );
-            ubo.proj[1][1] *= -1.0f;
+            // float time = (float)lvPrecisionTimer_stop(&timer);
+
+            // glm_rotate(
+            //     ubo.model,
+            //     glm_rad(-time * 90.0f * model_i),
+            //     (vec3){0.0f, 1.0f, 0.0f}
+            // );
+
+            ubo.model = lvTransform_to_matrix4(model->xform);
+            ubo.proj = camera.proj_mat;
+            ubo.view = camera.view_mat;
 
             if (lvGraphicsPipeline_set_uniform(
                 &graphics_pipeline,

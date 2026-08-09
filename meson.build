@@ -59,6 +59,7 @@ lava_src = [
     'src/lava/vk/image.c',
     'src/lava/vk/graphics_pipeline.c',
 
+    'src/lava/world/camera.c',
     'src/lava/world/mesh.c',
     'src/lava/world/scene.c',
 ]
@@ -81,7 +82,6 @@ sdl2_dep = dependency(
 sdl2_image_dep = dependency('sdl2_image')
 vulkan_dep = dependency('vulkan')
 vma_dep = dependency('VulkanMemoryAllocator')
-cglm_dep = dependency('cglm')
 
 if IS_MSVC
     sdl2_main_dep = dependency('sdl2main')
@@ -91,7 +91,6 @@ if IS_MSVC
         sdl2_image_dep,
         vulkan_dep,
         vma_dep,
-        cglm_dep
     ]
 else
     main_deps = [
@@ -99,7 +98,6 @@ else
         vulkan_dep,
         sdl2_image_dep,
         vma_dep,
-        cglm_dep
     ]
 endif
 

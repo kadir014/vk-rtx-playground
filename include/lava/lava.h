@@ -9,6 +9,11 @@
 #include "lava/core/io.h"
 #include "lava/core/log.h"
 
+#include "lava/math/math.h"
+#include "lava/math/vector.h"
+#include "lava/math/matrix.h"
+#include "lava/math/transform.h"
+
 #include "lava/containers/array.h"
 #include "lava/containers/refarray.h"
 
@@ -26,7 +31,6 @@
 #include "lava/world/material.h"
 #include "lava/world/mesh.h"
 #include "lava/world/model.h"
-#include "lava/world/transform.h"
 #include "lava/world/scene.h"
 
 

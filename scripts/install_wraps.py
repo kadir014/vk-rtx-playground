@@ -10,7 +10,6 @@ wraps = [
     "sdl2",
     "sdl2_image",
     "vulkan-memory-allocator",
-    "cglm",
 ]
 
 for wrap in wraps:

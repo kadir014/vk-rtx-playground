@@ -127,7 +127,7 @@ static inline void parse_vertex(lvOBJ *obj) {
     skip_whitespace(obj);
     float z = fast_str2f(&obj->current);
 
-    lvOBJVec3 vertex = {x, y, z};
+    lvVector3 vertex = {x, y, z};
     lvArray_add(&obj->vertices, &vertex);
 }
 
@@ -148,7 +148,7 @@ static inline void parse_normal(lvOBJ *obj) {
     skip_whitespace(obj);
     float z = fast_str2f(&obj->current);
 
-    lvOBJVec3 normal = {x, y, z};
+    lvVector3 normal = {x, y, z};
     lvArray_add(&obj->normals, &normal);
 }
 
@@ -166,7 +166,7 @@ static inline void parse_uv(lvOBJ *obj) {
     skip_whitespace(obj);
     float y = fast_str2f(&obj->current);
 
-    lvOBJVec2 uv = {x, y};
+    lvVector2 uv = {x, y};
     lvArray_add(&obj->uvs, &uv);
 }
 
@@ -332,9 +332,9 @@ static void parse_mtl(lvOBJ *obj) {
 lvOBJ lvOBJ_load_raw(char *source) {
     lvOBJ obj;
 
-    obj.vertices = lvArray_new(sizeof(vec3));
-    obj.normals = lvArray_new(sizeof(vec3));
-    obj.uvs = lvArray_new(sizeof(vec2));
+    obj.vertices = lvArray_new(sizeof(lvVector3));
+    obj.normals = lvArray_new(sizeof(lvVector3));
+    obj.uvs = lvArray_new(sizeof(lvVector2));
     obj.faces = lvArray_new(sizeof(lvOBJFace));
 
     obj.mesh.tris = lvArray_new(sizeof(lvOBJTri));
@@ -348,19 +348,19 @@ lvOBJ lvOBJ_load_raw(char *source) {
 
         lvOBJTri tri = {
             .vertices = {
-                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[0] - 1, lvOBJVec3),
-                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[1] - 1, lvOBJVec3),
-                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[2] - 1, lvOBJVec3)
+                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[0] - 1, lvVector3),
+                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[1] - 1, lvVector3),
+                LV_ARRAY_AT(&obj.vertices, face->vertex_ids[2] - 1, lvVector3)
             },
             .normals = {
-                LV_ARRAY_AT(&obj.normals, face->normal_ids[0] - 1, lvOBJVec3),
-                LV_ARRAY_AT(&obj.normals, face->normal_ids[1] - 1, lvOBJVec3),
-                LV_ARRAY_AT(&obj.normals, face->normal_ids[2] - 1, lvOBJVec3)
+                LV_ARRAY_AT(&obj.normals, face->normal_ids[0] - 1, lvVector3),
+                LV_ARRAY_AT(&obj.normals, face->normal_ids[1] - 1, lvVector3),
+                LV_ARRAY_AT(&obj.normals, face->normal_ids[2] - 1, lvVector3)
             },
             .uvs = {
-                LV_ARRAY_AT(&obj.uvs, face->uv_ids[0] - 1, lvOBJVec2),
-                LV_ARRAY_AT(&obj.uvs, face->uv_ids[1] - 1, lvOBJVec2),
-                LV_ARRAY_AT(&obj.uvs, face->uv_ids[2] - 1, lvOBJVec2)
+                LV_ARRAY_AT(&obj.uvs, face->uv_ids[0] - 1, lvVector2),
+                LV_ARRAY_AT(&obj.uvs, face->uv_ids[1] - 1, lvVector2),
+                LV_ARRAY_AT(&obj.uvs, face->uv_ids[2] - 1, lvVector2)
             },
         };
 

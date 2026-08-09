@@ -3,6 +3,7 @@
 
 #include "lava/internal.h"
 #include "lava/containers/array.h"
+#include "lava/math/vector.h"
 
 
 /**
@@ -15,18 +16,6 @@
 
 #define LV_OBJ_MTL_NAME_LENGTH 64
 #define LV_OBJ_MTL_MAP_FILEPATH_LENGTH 256
-
-
-typedef struct {
-    float x;
-    float y;
-    float z;
-} lvOBJVec3;
-
-typedef struct {
-    float x;
-    float y;
-} lvOBJVec2;
 
 
 /**
@@ -46,9 +35,9 @@ typedef struct {
  * @brief Single triangular face.
  */
 typedef struct {
-    lvOBJVec3 vertices[3];
-    lvOBJVec3 normals[3];
-    lvOBJVec2 uvs[3];
+    lvVector3 vertices[3];
+    lvVector3 normals[3];
+    lvVector2 uvs[3];
 } lvOBJTri;
 
 /**
@@ -99,7 +88,7 @@ typedef struct {
     float clearcoat_thickness;
     float clearcoat_roughness;
 
-    lvOBJVec3 emissive;
+    lvVector3 emissive;
     char emissive_map[LV_OBJ_MTL_MAP_FILEPATH_LENGTH];
 
     float anisotropy;

@@ -4,7 +4,7 @@
 #include "lava/internal.h"
 #include "lava/containers/refarray.h"
 #include "lava/world/mesh.h"
-#include "lava/world/transform.h"
+#include "lava/math/transform.h"
 #include "lava/world/material.h"
 
 

@@ -1,17 +1,16 @@
 #ifndef LAVA_INTERNAL_H
 #define LAVA_INTERNAL_H
 
-
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <math.h>
 
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_vulkan.h>
 #include <vulkan/vulkan.h>
-#include "vk_mem_alloc.h"
-#include "cglm/cglm.h"
+#include <vk_mem_alloc.h>
 
 #include "lava/internal_alloc.h"
 

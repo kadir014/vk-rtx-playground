@@ -89,16 +89,16 @@ int lvGraphicsPipelineBuilder_define_resource(
     size_t size
 ) {
     size_t binding = 0;
-    if (freq == LV_RESOURCE_FREQ_GLOBAL) {
+    if (freq == lvResourceFreq_GLOBAL) {
         binding = builder->set0_accumulate++;
     }
-    else if (freq == LV_RESOURCE_FREQ_MATERIAL) {
+    else if (freq == lvResourceFreq_MATERIAL) {
         binding = builder->set1_accumulate++;
     }
-    else if (freq == LV_RESOURCE_FREQ_OBJECT) {
+    else if (freq == lvResourceFreq_OBJECT) {
         binding = builder->set2_accumulate++;
     }
-    else if (freq == LV_RESOURCE_FREQ_STATIC) {
+    else if (freq == lvResourceFreq_STATIC) {
         binding = builder->set3_accumulate++;
     }
 
@@ -163,10 +163,10 @@ int lvGraphicsPipelineBuilder_build(
 
         VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
 
-        if (resource_def.type == LV_RESOURCE_TYPE_UNIFORM) {
+        if (resource_def.type == lvResourceType_UNIFORM) {
             desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         }
-        else if (resource_def.type == LV_RESOURCE_TYPE_SAMPLER) {
+        else if (resource_def.type == lvResourceType_SAMPLER) {
             desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         }
 
@@ -179,19 +179,19 @@ int lvGraphicsPipelineBuilder_build(
         };
 
         size_t copies = 0;
-        if (resource_def.freq == LV_RESOURCE_FREQ_GLOBAL) {
+        if (resource_def.freq == lvResourceFreq_GLOBAL) {
             lvArray_add(&global_set_bindings, &desc_binding);
             copies = global_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_MATERIAL) {
+        else if (resource_def.freq == lvResourceFreq_MATERIAL) {
             lvArray_add(&material_set_bindings, &desc_binding);
             copies = material_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_OBJECT) {
+        else if (resource_def.freq == lvResourceFreq_OBJECT) {
             lvArray_add(&object_set_bindings, &desc_binding);
             copies = object_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_STATIC) {
+        else if (resource_def.freq == lvResourceFreq_STATIC) {
             lvArray_add(&static_set_bindings, &desc_binding);
             copies = static_copies;
         }
@@ -405,16 +405,16 @@ int lvGraphicsPipelineBuilder_build(
         );
 
         size_t copies = 0;
-        if (resource_def.freq == LV_RESOURCE_FREQ_GLOBAL) {
+        if (resource_def.freq == lvResourceFreq_GLOBAL) {
             copies = global_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_MATERIAL) {
+        else if (resource_def.freq == lvResourceFreq_MATERIAL) {
             copies = material_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_OBJECT) {
+        else if (resource_def.freq == lvResourceFreq_OBJECT) {
             copies = object_copies;
         }
-        else if (resource_def.freq == LV_RESOURCE_FREQ_STATIC) {
+        else if (resource_def.freq == lvResourceFreq_STATIC) {
             copies = static_copies;
         }
 
@@ -425,28 +425,28 @@ int lvGraphicsPipelineBuilder_build(
 
         // Allocate buffer resources
 
-        if (resource_def.type == LV_RESOURCE_TYPE_UNIFORM) {
+        if (resource_def.type == lvResourceType_UNIFORM) {
             size_t w = 0;
             size_t h = 0;
             VkDescriptorSet *uniform_sets = NULL;
 
             switch (resource_def.freq) {
-                case LV_RESOURCE_FREQ_GLOBAL:
+                case lvResourceFreq_GLOBAL:
                     uniform_sets = pipeline->global_sets;
                     w = frame_lag;
                     h = frame_lag;
                     break;
-                case LV_RESOURCE_FREQ_MATERIAL:
+                case lvResourceFreq_MATERIAL:
                     uniform_sets = pipeline->material_sets;
                     w = n_materials;
                     h = 1;
                     break;
-                case LV_RESOURCE_FREQ_OBJECT:
+                case lvResourceFreq_OBJECT:
                     uniform_sets = pipeline->object_sets;
                     w = n_models;
                     h = frame_lag;
                     break;
-                case LV_RESOURCE_FREQ_STATIC:
+                case lvResourceFreq_STATIC:
                     uniform_sets = pipeline->static_sets;
                     w = 1;
                     h = 1;
@@ -538,28 +538,28 @@ int lvGraphicsPipelineBuilder_build(
                 }
             }
         }
-        else if (resource_def.type == LV_RESOURCE_TYPE_SAMPLER) {
+        else if (resource_def.type == lvResourceType_SAMPLER) {
             size_t w = 0;
             size_t h = 0;
             VkDescriptorSet *sampler_sets = NULL;
 
             switch (resource_def.freq) {
-                case LV_RESOURCE_FREQ_GLOBAL:
+                case lvResourceFreq_GLOBAL:
                     sampler_sets = pipeline->global_sets;
                     w = frame_lag;
                     h = frame_lag;
                     break;
-                case LV_RESOURCE_FREQ_MATERIAL:
+                case lvResourceFreq_MATERIAL:
                     sampler_sets = pipeline->material_sets;
                     w = n_materials;
                     h = 1;
                     break;
-                case LV_RESOURCE_FREQ_OBJECT:
+                case lvResourceFreq_OBJECT:
                     sampler_sets = pipeline->object_sets;
                     w = n_models;
                     h = frame_lag;
                     break;
-                case LV_RESOURCE_FREQ_STATIC:
+                case lvResourceFreq_STATIC:
                     sampler_sets = pipeline->static_sets;
                     w = 1;
                     h = 1;

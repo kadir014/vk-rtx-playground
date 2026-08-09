@@ -1,5 +1,6 @@
 #include "lava/world/mesh.h"
 #include "lava/containers/array.h"
+#include "lava/math/vector.h"
 
 
 int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
@@ -10,7 +11,7 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
     mesh->n_vertices = obj_mesh.tris.size * 3;
 
     {
-        vec3 *vertices = LV_MALLOC(sizeof(vec3) * mesh->n_vertices);
+        lvVector3 *vertices = LV_MALLOC(sizeof(lvVector3) * mesh->n_vertices);
         if (!vertices) {
             printf("Failed to allocate.\n");
             return 1;
@@ -21,9 +22,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
 
             for (size_t i = 0; i < 3; i++) {
-                vertices[j][0] = tri.vertices[i].x;
-                vertices[j][1] = tri.vertices[i].y;
-                vertices[j][2] = tri.vertices[i].z;
+                vertices[j].x = tri.vertices[i].x;
+                vertices[j].y = tri.vertices[i].y;
+                vertices[j].z = tri.vertices[i].z;
                 j += 1;
             }
         }
@@ -31,9 +32,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
         mesh->vertices = (lvBuffer){
             .location = 0,
             .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .stride = sizeof(vec3),
+            .stride = sizeof(lvVector3),
         };
-        if (lvBuffer_init_vertex(&mesh->vertices, ctx, sizeof(vec3) * mesh->n_vertices, 0) != 0) {
+        if (lvBuffer_init_vertex(&mesh->vertices, ctx, sizeof(lvVector3) * mesh->n_vertices, 0) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
@@ -43,21 +44,21 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             printf("Memory mapping failed.\n");
             return 1;
         }
-        memcpy(vertex_buffer_data, vertices, sizeof(vec3) * mesh->n_vertices);
+        memcpy(vertex_buffer_data, vertices, sizeof(lvVector3) * mesh->n_vertices);
         vmaUnmapMemory(ctx->allocator, mesh->vertices._allocation);
 
         LV_FREE(vertices);
     }
 
     {
-        vec2 *uvs = LV_MALLOC(sizeof(vec2) * mesh->n_vertices);
+        lvVector2 *uvs = LV_MALLOC(sizeof(lvVector2) * mesh->n_vertices);
         size_t j = 0;
         for (size_t tri_idx = 0; tri_idx < obj_mesh.tris.size; tri_idx++) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
 
             for (size_t i = 0; i < 3; i++) {
-                uvs[j][0] = tri.uvs[i].x;
-                uvs[j][1] = tri.uvs[i].y;
+                uvs[j].x = tri.uvs[i].x;
+                uvs[j].y = tri.uvs[i].y;
                 j += 1;
             }
         }
@@ -65,9 +66,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
         mesh->uvs = (lvBuffer){
             .location = 1,
             .format = VK_FORMAT_R32G32_SFLOAT,
-            .stride = sizeof(vec2),
+            .stride = sizeof(lvVector2),
         };
-        if (lvBuffer_init_vertex(&mesh->uvs, ctx, sizeof(vec2) * mesh->n_vertices, 1) != 0) {
+        if (lvBuffer_init_vertex(&mesh->uvs, ctx, sizeof(lvVector2) * mesh->n_vertices, 1) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
@@ -77,22 +78,22 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             printf("Memory mapping failed.\n");
             return 1;
         }
-        memcpy(uv_buffer_data, uvs, sizeof(vec2) * mesh->n_vertices);
+        memcpy(uv_buffer_data, uvs, sizeof(lvVector2) * mesh->n_vertices);
         vmaUnmapMemory(ctx->allocator, mesh->uvs._allocation);
 
         LV_FREE(uvs);
     }
 
     {
-        vec3 *normals = LV_MALLOC(sizeof(vec3) * mesh->n_vertices);
+        lvVector3 *normals = LV_MALLOC(sizeof(lvVector3) * mesh->n_vertices);
         size_t j = 0;
         for (size_t tri_idx = 0; tri_idx < obj_mesh.tris.size; tri_idx++) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
 
             for (size_t i = 0; i < 3; i++) {
-                normals[j][0] = tri.normals[i].x;
-                normals[j][1] = tri.normals[i].y;
-                normals[j][2] = tri.normals[i].z;
+                normals[j].x = tri.normals[i].x;
+                normals[j].y = tri.normals[i].y;
+                normals[j].z = tri.normals[i].z;
                 j += 1;
             }
         }
@@ -100,9 +101,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
         mesh->normals = (lvBuffer){
             .location = 2,
             .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .stride = sizeof(vec3),
+            .stride = sizeof(lvVector3),
         };
-        if (lvBuffer_init_vertex(&mesh->normals, ctx, sizeof(vec3) * mesh->n_vertices, 2) != 0) {
+        if (lvBuffer_init_vertex(&mesh->normals, ctx, sizeof(lvVector3) * mesh->n_vertices, 2) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
@@ -112,7 +113,7 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             printf("Memory mapping failed.\n");
             return 1;
         }
-        memcpy(normal_buffer_data, normals, sizeof(vec3) * mesh->n_vertices);
+        memcpy(normal_buffer_data, normals, sizeof(lvVector3) * mesh->n_vertices);
         vmaUnmapMemory(ctx->allocator, mesh->normals._allocation);
 
         LV_FREE(normals);
