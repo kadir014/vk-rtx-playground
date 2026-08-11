@@ -21,7 +21,6 @@ void record_cmd_buf(
     lvGraphicsPipeline *graphics_pipeline,
     VkCommandBuffer cmd_buf,
     uint32_t image_idx,
-    uint32_t frame_idx_sync,
     lvImage depth_texture
 ) {
     // begin recording
@@ -93,7 +92,7 @@ void record_cmd_buf(
         .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
         .clearValue = depth_clear_color,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE // TODO: ONLY FOR DEBUGGING, CHANGE TO DONT_CARE
+        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE
     };
 
     VkRenderingInfo rendering_info = {
@@ -113,6 +112,18 @@ void record_cmd_buf(
 
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline->pipeline);
 
+    size_t global_idx = ctx->frame_idx;
+    vkCmdBindDescriptorSets(
+        cmd_buf,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        graphics_pipeline->layout,
+        0,              // firstSet
+        1,              // set count
+        &graphics_pipeline->global_sets[global_idx],
+        0,
+        NULL
+    );
+
     lvArray vk_buffers = lvArray_new(sizeof(VkBuffer));
     for (size_t model_i = 0; model_i < scene->models.size; model_i++) {
         lvModel *model = LV_ARRAY_PTR_AT(&scene->models, model_i, lvModel);
@@ -123,7 +134,7 @@ void record_cmd_buf(
         // y = frame_i
         // w = n_models
         // x = model_i
-        size_t obj_idx = frame_idx_sync * scene->models.size + model_i;
+        size_t obj_idx = ctx->frame_idx * scene->models.size + model_i;
 
         vk_buffers.size = 0;
         lvArray_add(&vk_buffers, &(mesh->vertices._buffer));
@@ -226,8 +237,7 @@ int main(int argc, char *argv[]) {
     }
 
     lvSwapchain swapchain;
-    const size_t frame_lag = 2;
-    if (lvSwapchain_init(&swapchain, &ctx, frame_lag) != 0) {
+    if (lvSwapchain_init(&swapchain, &ctx, 2) != 0) {
         lv_fatal("Failed to create swapchain.");
     }
 
@@ -245,7 +255,7 @@ int main(int argc, char *argv[]) {
     }
 
     lvArray cmd_bufs = lvArray_new(sizeof(VkCommandBuffer));
-    cmd_bufs.size = frame_lag;
+    cmd_bufs.size = ctx.frame_lag;
     lvArray_resize(&cmd_bufs);
 
     VkCommandBufferAllocateInfo alloc_info = {
@@ -253,7 +263,7 @@ int main(int argc, char *argv[]) {
         .pNext = NULL,
         .commandPool = ctx.cmd_pool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = frame_lag
+        .commandBufferCount = ctx.frame_lag
     };
 
     if (vkAllocateCommandBuffers(ctx.device, &alloc_info, (VkCommandBuffer *)cmd_bufs.data) != VK_SUCCESS) {
@@ -350,6 +360,7 @@ int main(int argc, char *argv[]) {
         0.1f, 100.0f,
         55.0f
     );
+    camera.position = lv_vector3(0.0f, 1.0f, 3.0f);
 
     lvScene scene = lvScene_new(&camera);
 
@@ -380,11 +391,11 @@ int main(int argc, char *argv[]) {
                 lv_fatal("Model not found: %s", name);
             }
 
-            model->xform.scale.x = 0.2f;
-            model->xform.scale.y = 0.2f;
-            model->xform.scale.z = 0.2f;
-            model->xform.position.x = (float)x * 0.2;
-            model->xform.position.y = 0.85f + (float)y * 0.2;
+            model->xform.scale.x = 0.1f;
+            model->xform.scale.y = 0.1f;
+            model->xform.scale.z = 0.1f;
+            model->xform.position.x = (float)x * 0.6;
+            model->xform.position.y = 0.85f + (float)y * 0.6;
             model->xform.position.z = 0.0f;
         }
     }
@@ -410,6 +421,378 @@ int main(int argc, char *argv[]) {
     );
 
 
+    /* RAY TRACING & ACCELERATION STRUCTURES */
+
+    // Scratch buffer needs a weird alignment, fetch it firstly
+
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR
+    };
+
+    VkPhysicalDeviceProperties2 props = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &as_props
+    };
+
+    vkGetPhysicalDeviceProperties2(ctx.phydevice, &props);
+
+    // Prepare BLAS arrays
+
+    size_t n_blas = scene.models.size;
+
+    lvArray blas_buffers = lvArray_new(sizeof(lvBuffer));
+    blas_buffers.size = n_blas;
+    lvArray_resize(&blas_buffers);
+
+    lvArray blas_scratch = lvArray_new(sizeof(lvBuffer));
+    blas_scratch.size = n_blas;
+    lvArray_resize(&blas_scratch);
+
+    lvArray blas_handles = lvArray_new(sizeof(VkAccelerationStructureKHR));
+    blas_handles.size = n_blas;
+    lvArray_resize(&blas_handles);
+
+    lvArray blas_insts = lvArray_new(sizeof(VkAccelerationStructureInstanceKHR));
+    blas_insts.size = n_blas;
+    lvArray_resize(&blas_insts);
+
+    for (size_t i = 0; i < n_blas; i++) {
+        lvModel *model = LV_ARRAY_PTR_AT(&scene.models, i, lvModel);
+        lvMesh *mesh = model->meshes.data[0];
+
+        uint32_t max_primitive_count = mesh->n_vertices / 3;
+
+        VkBufferDeviceAddressInfo vertex_addr_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = mesh->vertices._buffer
+        };
+        VkDeviceAddress vertex_addr = vkGetBufferDeviceAddress(ctx.device, &vertex_addr_info);
+
+        VkAccelerationStructureGeometryTrianglesDataKHR as_tris = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+            .pNext = NULL,
+            .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
+            .vertexData.deviceAddress = vertex_addr,
+            .vertexStride = sizeof(lvVector3),
+            .maxVertex = mesh->n_vertices - 1,
+            .indexType = VK_INDEX_TYPE_NONE_KHR,
+            .indexData = 0
+        };
+
+        VkAccelerationStructureGeometryDataKHR geo_data = {
+            .triangles = as_tris
+        };
+
+        VkAccelerationStructureGeometryKHR blas_geo = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+            .pNext = NULL,
+            .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+            .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+            .geometry = geo_data
+        };
+
+        VkAccelerationStructureBuildGeometryInfoKHR blas_geo_build_info = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+            .pNext = NULL,
+            .flags = 0,
+            .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+            .geometryCount = 1,
+            .pGeometries = &blas_geo,
+            .ppGeometries = NULL,
+            .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+        };
+
+        VkAccelerationStructureBuildSizesInfoKHR blas_build_sizes = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+            .pNext = NULL
+        };
+        ctx.ext.vkGetAccelerationStructureBuildSizesKHR(
+            ctx.device,
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &blas_geo_build_info,
+            &max_primitive_count,
+            &blas_build_sizes
+        );
+
+        lvBuffer *buf = LV_ARRAY_PTR_AT(&blas_buffers, i, lvBuffer);
+        lvBuffer *scratch = LV_ARRAY_PTR_AT(&blas_scratch, i, lvBuffer);
+
+        if (
+            lvBuffer_init_aligned(
+                scratch,
+                &ctx,
+                blas_build_sizes.buildScratchSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                as_props.minAccelerationStructureScratchOffsetAlignment
+            ) != 0
+        ) {
+            lv_fatal("Failed to create BLAS scratch buffer.");
+        }
+
+        VkBufferDeviceAddressInfo scratch_addr_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .pNext = NULL,
+            .buffer = scratch->_buffer
+        };
+        VkDeviceAddress scratch_addr = vkGetBufferDeviceAddress(ctx.device, &scratch_addr_info);
+        blas_geo_build_info.scratchData.deviceAddress = scratch_addr;
+
+        if (
+            lvBuffer_init(
+                buf,
+                &ctx,
+                blas_build_sizes.accelerationStructureSize,
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+            ) != 0
+        ) {
+            lv_fatal("Failed to create BLAS buffer.");
+        }
+
+        // TODO: VkAccelerationStructureCreateInfo2KHR
+        VkAccelerationStructureCreateInfoKHR blas_info = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+            .pNext = NULL,
+            .offset = 0,
+            .buffer = buf->_buffer,
+            .size = blas_build_sizes.accelerationStructureSize,
+            .type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+        };
+
+        VkAccelerationStructureKHR *blas_handle = LV_ARRAY_PTR_AT(&blas_handles, i, VkAccelerationStructureKHR);
+
+        if (ctx.ext.vkCreateAccelerationStructureKHR(
+            ctx.device, &blas_info, NULL, blas_handle
+        ) != VK_SUCCESS) {
+            lv_fatal("Failed to create BLAS.");
+        }
+
+        printf(
+            "BLAS for model %zu:\n"
+            "- Triangles:    %zu (%zu bytes)\n"
+            "- Build size:   %zu\n"
+            "- Scratch size: %zu\n"
+            "- Min align:    %zu\n"
+            "- Buffer:       %p\n"
+            "- Scratch:      %p\n"
+            "- Handle:       %p\n"
+            "\n",
+            i,
+            mesh->n_vertices / 3, sizeof(lvVector3) * mesh->n_vertices,
+            (size_t)blas_build_sizes.accelerationStructureSize,
+            (size_t)blas_build_sizes.buildScratchSize,
+            (size_t)as_props.minAccelerationStructureScratchOffsetAlignment,
+            buf->_buffer,
+            scratch->_buffer,
+            blas_handle
+        );
+
+        blas_geo_build_info.dstAccelerationStructure = *blas_handle;
+
+        // Build info is ready, prepare the ranges
+
+        VkAccelerationStructureBuildRangeInfoKHR blas_range_info = {
+            .primitiveCount = max_primitive_count,
+            .primitiveOffset = 0,
+            .firstVertex = 0,
+            .transformOffset = 0
+        };
+
+        // build
+
+        VkCommandBuffer cmd_buf = lv_begin_single_time_cmd(&ctx);
+
+        const VkAccelerationStructureBuildRangeInfoKHR *range_info = &blas_range_info;
+
+        ctx.ext.vkCmdBuildAccelerationStructuresKHR(
+            cmd_buf,
+            1,
+            &blas_geo_build_info,
+            &range_info
+        );
+
+        lv_end_single_time_cmd(&ctx, cmd_buf);
+
+        // Create BLAS instances for TLAS
+
+        VkAccelerationStructureDeviceAddressInfoKHR blas_addr_info = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+            .pNext = NULL,
+            .accelerationStructure = *blas_handle
+        };
+
+        VkDeviceAddress blas_addr = ctx.ext.vkGetAccelerationStructureDeviceAddressKHR(ctx.device, &blas_addr_info);
+
+        VkTransformMatrixKHR blas_xform = lvTransform_to_vk_transform_matrix(model->xform);
+
+        VkAccelerationStructureInstanceKHR blas_inst = {
+            .accelerationStructureReference = blas_addr,
+            .mask = 0xFF,
+            .transform = blas_xform
+        };
+
+        // TODO: lvArray_set
+        memcpy(LV_ARRAY_PTR_AT(&blas_insts, i, VkAccelerationStructureInstanceKHR), &blas_inst, sizeof(VkAccelerationStructureInstanceKHR));
+    }
+
+    // PREPARE & BUILD TLAS
+
+    VkDeviceSize inst_size = blas_insts.size * blas_insts.element_size;
+
+    lvBuffer inst_buf;
+    if (
+        lvBuffer_init_mappable(
+            &inst_buf,
+            &ctx,
+            inst_size,
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+        ) != 0
+    ) {
+        lv_fatal("Failed to create instances buffer.");
+    }
+
+    void *inst_ptr;
+    if (vmaMapMemory(ctx.allocator, inst_buf._allocation, &inst_ptr) != VK_SUCCESS) {
+        lv_fatal("Failed to map instance buffer.");
+    }
+    memcpy(inst_ptr, blas_insts.data, inst_size);
+    vmaUnmapMemory(ctx.allocator, inst_buf._allocation);
+
+    VkBufferDeviceAddressInfo inst_buf_addr_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .pNext = NULL,
+        .buffer = inst_buf._buffer
+    };
+    VkDeviceAddress inst_buf_addr = vkGetBufferDeviceAddress(ctx.device, &inst_buf_addr_info);
+
+    VkAccelerationStructureGeometryInstancesDataKHR blas_insts_data = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+        .pNext = NULL,
+        .arrayOfPointers = VK_FALSE,
+        .data = inst_buf_addr
+    };
+
+    VkAccelerationStructureGeometryDataKHR blas_insts_geo_data = {
+        .instances = blas_insts_data
+    };
+
+    VkAccelerationStructureGeometryKHR blas_insts_geo = {
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+            .pNext = NULL,
+            .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+            .geometry = blas_insts_geo_data
+        };
+
+    VkAccelerationStructureBuildGeometryInfoKHR tlas_geo_build_info = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+        .pNext = NULL,
+        .flags = 0,
+        .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+        .geometryCount = 1,
+        .pGeometries = &blas_insts_geo,
+        .ppGeometries = NULL,
+        .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR
+    };
+
+    uint32_t n_tlas_primitives = blas_insts.size;
+
+    VkAccelerationStructureBuildSizesInfoKHR tlas_build_sizes = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+        .pNext = NULL
+    };
+    ctx.ext.vkGetAccelerationStructureBuildSizesKHR(
+        ctx.device,
+        VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+        &tlas_geo_build_info,
+        &n_tlas_primitives,
+        &tlas_build_sizes
+    );
+
+    lvBuffer tlas_scratch;
+    if (
+        lvBuffer_init_aligned(
+            &tlas_scratch,
+            &ctx,
+            tlas_build_sizes.buildScratchSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            as_props.minAccelerationStructureScratchOffsetAlignment
+        ) != 0
+    ) {
+        lv_fatal("Failed to create TLAS scratch buffer.");
+    }
+
+    VkBufferDeviceAddressInfo tlas_scratch_addr_info = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .pNext = NULL,
+        .buffer = tlas_scratch._buffer
+    };
+    VkDeviceAddress tlas_scratch_addr = vkGetBufferDeviceAddress(ctx.device, &tlas_scratch_addr_info);
+    tlas_geo_build_info.scratchData.deviceAddress = tlas_scratch_addr;
+
+    lvBuffer tlas_buf;
+    if (
+        lvBuffer_init(
+            &tlas_buf,
+            &ctx,
+            tlas_build_sizes.accelerationStructureSize,
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+        ) != 0
+    ) {
+        lv_fatal("Failed to create TLAS buffer.");
+    }
+
+    VkAccelerationStructureCreateInfoKHR tlas_info = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+        .pNext = NULL,
+        .offset = 0,
+        .buffer = tlas_buf._buffer,
+        .size = tlas_build_sizes.accelerationStructureSize,
+        .type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+    };
+
+    VkAccelerationStructureKHR tlas_handle;
+
+    if (ctx.ext.vkCreateAccelerationStructureKHR(
+        ctx.device, &tlas_info, NULL, &tlas_handle
+    ) != VK_SUCCESS) {
+        lv_fatal("Failed to create TLAS.");
+    }
+
+    tlas_geo_build_info.dstAccelerationStructure = tlas_handle;
+
+    // Build info is ready, prepare the ranges
+
+    VkAccelerationStructureBuildRangeInfoKHR tlas_range_info = {
+        .primitiveCount = n_tlas_primitives,
+        .primitiveOffset = 0,
+        .firstVertex = 0,
+        .transformOffset = 0
+    };
+
+    VkCommandBuffer cmd_buf = lv_begin_single_time_cmd(&ctx);
+
+    const VkAccelerationStructureBuildRangeInfoKHR *range_info = &tlas_range_info;
+
+    ctx.ext.vkCmdBuildAccelerationStructuresKHR(
+        cmd_buf,
+        1,
+        &tlas_geo_build_info,
+        &range_info
+    );
+
+    lv_end_single_time_cmd(&ctx, cmd_buf);
+
+    scene.tlas = tlas_handle;
+
+
+
     lvGraphicsPipelineBuilder graphics_builder = lvGraphicsPipelineBuilder_new(&ctx, &scene);
 
     lvGraphicsPipelineBuilder_load_shader(
@@ -428,7 +811,7 @@ int main(int argc, char *argv[]) {
         &graphics_builder,
         "MVP",
         lvResourceType_UNIFORM,
-        lvResourceFreq_OBJECT,
+        lvResourceScope_OBJECT,
         VK_SHADER_STAGE_VERTEX_BIT,
         sizeof(MVP)
     );
@@ -437,7 +820,17 @@ int main(int argc, char *argv[]) {
         &graphics_builder,
         "Texture",
         lvResourceType_SAMPLER,
-        lvResourceFreq_MATERIAL,
+        lvResourceScope_MATERIAL,
+        VK_SHADER_STAGE_FRAGMENT_BIT,
+        0
+    );
+
+    // TODO: THIS SHOULD BE IMPLICITLY CREATED, NOT BY USER
+    lvGraphicsPipelineBuilder_define_resource(
+        &graphics_builder,
+        "TLAS",
+        lvResourceType_ACCELERATION_STRUCTURE,
+        lvResourceScope_GLOBAL,
         VK_SHADER_STAGE_FRAGMENT_BIT,
         0
     );
@@ -461,9 +854,6 @@ int main(int argc, char *argv[]) {
 
     lvPrecisionTimer timer;
     lvPrecisionTimer_start(&timer);
-
-    // Frame index used by the synchronization structures
-    size_t frame_idx_sync = 0;
 
     bool is_running = true;
     while (is_running) {
@@ -529,17 +919,17 @@ int main(int argc, char *argv[]) {
 
         // DRAW FRAME
 
-        VkFence curr_fen = LV_ARRAY_AT(&swapchain.fen_frame, frame_idx_sync, VkFence);
+        VkFence curr_fen = LV_ARRAY_AT(&swapchain.fen_frame, ctx.frame_idx, VkFence);
         vkWaitForFences(ctx.device, 1, &curr_fen, VK_TRUE, UINT64_MAX);
         vkResetFences(ctx.device, 1, &curr_fen);
 
-        VkSemaphore sem_img_available = LV_ARRAY_AT(&swapchain.sem_image, frame_idx_sync, VkSemaphore);
+        VkSemaphore sem_img_available = LV_ARRAY_AT(&swapchain.sem_image, ctx.frame_idx, VkSemaphore);
         uint32_t image_idx = 0;
         if (vkAcquireNextImageKHR(ctx.device, swapchain.swapchain, UINT64_MAX, sem_img_available, VK_NULL_HANDLE, &image_idx) != VK_SUCCESS) {
             printf("Failed to acquire next image from swapchain, continuing.");
         }
 
-        VkCommandBuffer cmd_buf = LV_ARRAY_AT(&cmd_bufs, frame_idx_sync, VkCommandBuffer);
+        VkCommandBuffer cmd_buf = LV_ARRAY_AT(&cmd_bufs, ctx.frame_idx, VkCommandBuffer);
 
         vkResetCommandBuffer(cmd_buf, 0);
         record_cmd_buf(
@@ -549,7 +939,6 @@ int main(int argc, char *argv[]) {
             &graphics_pipeline,
             cmd_buf,
             image_idx,
-            frame_idx_sync,
             depth_texture
         );
 
@@ -612,7 +1001,7 @@ int main(int argc, char *argv[]) {
                 &graphics_pipeline,
                 "MVP",
                 &ubo,
-                (size_t[2]){frame_idx_sync, model_i}
+                (size_t[2]){ctx.frame_idx, model_i}
             ) != 0) {
                 lv_fatal("Failed to set uniform.");
             }
@@ -636,11 +1025,26 @@ int main(int argc, char *argv[]) {
             printf("Failed to present image to swapchain, continuing.");
         }
 
-        frame_idx_sync = (frame_idx_sync + 1) % frame_lag;
+        ctx.frame_idx = (ctx.frame_idx + 1) % ctx.frame_lag;
     }
 
     // Wait for synchronization to be done before cleanup
     vkDeviceWaitIdle(ctx.device);
+
+    lvBuffer_free(&tlas_buf, &ctx);
+    lvBuffer_free(&tlas_scratch, &ctx);
+    lvBuffer_free(&inst_buf, &ctx);
+    ctx.ext.vkDestroyAccelerationStructureKHR(ctx.device, tlas_handle, NULL);
+
+    for (size_t i = 0; i < blas_handles.size; i++) {
+        ctx.ext.vkDestroyAccelerationStructureKHR(ctx.device, LV_ARRAY_AT(&blas_handles, i, VkAccelerationStructureKHR), NULL);
+        lvBuffer_free(LV_ARRAY_PTR_AT(&blas_buffers, i, lvBuffer), &ctx);
+        lvBuffer_free(LV_ARRAY_PTR_AT(&blas_scratch, i, lvBuffer), &ctx);
+    }
+    lvArray_free(&blas_handles);
+    lvArray_free(&blas_buffers);
+    lvArray_free(&blas_scratch);
+    lvArray_free(&blas_insts);
 
     lvImage_free(&depth_texture, &ctx);
 

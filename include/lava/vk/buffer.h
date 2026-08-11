@@ -16,9 +16,29 @@ typedef struct {
     VkVertexInputAttributeDescription _attr_desc;
 } lvBuffer;
 
-int lvBuffer_init(lvBuffer *buffer, lvContext *ctx, VkDeviceSize reserved);
+int lvBuffer_init(
+    lvBuffer *buffer,
+    lvContext *ctx,
+    VkDeviceSize reserved,
+    VkBufferUsageFlags usage
+);
 
-int lvBuffer_init_vertex(lvBuffer *buffer, lvContext *ctx, VkDeviceSize reserved, uint32_t binding);
+int lvBuffer_init_aligned(
+    lvBuffer *buffer,
+    lvContext *ctx,
+    VkDeviceSize reserved,
+    VkBufferUsageFlags usage,
+    VkDeviceSize alignment
+);
+
+int lvBuffer_init_mappable(
+    lvBuffer *buffer,
+    lvContext *ctx,
+    VkDeviceSize reserved,
+    VkBufferUsageFlags usage
+);
+
+int lvBuffer_init_vertex(lvBuffer *buffer, lvContext *ctx, VkDeviceSize reserved, uint32_t binding, bool as);
 
 void lvBuffer_free(lvBuffer *buffer, lvContext *ctx);
 

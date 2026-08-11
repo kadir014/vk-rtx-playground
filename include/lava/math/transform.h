@@ -68,5 +68,21 @@ static inline lvMatrix4 lvTransform_to_matrix4(lvTransform xform) {
     return mat;
 }
 
+static inline VkTransformMatrixKHR lvTransform_to_vk_transform_matrix(
+    lvTransform xform
+) {
+    lvMatrix4 mat = lvTransform_to_matrix4(xform);
+
+    VkTransformMatrixKHR vk_mat = {
+        .matrix = {
+            {mat.m[0], mat.m[4], mat.m[8],  mat.m[12]},
+            {mat.m[1], mat.m[5], mat.m[9],  mat.m[13]},
+            {mat.m[2], mat.m[6], mat.m[10], mat.m[14]}
+        }
+    };
+
+    return vk_mat;
+}
+
 
 #endif // LAVA_MATH_TRANSFORM_H

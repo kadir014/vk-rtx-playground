@@ -18,6 +18,14 @@ typedef struct {
     lvRefArray requested_layers;
 } lvContextCreation;
 
+typedef struct {
+    PFN_vkCreateAccelerationStructureKHR vkCreateAccelerationStructureKHR;
+    PFN_vkDestroyAccelerationStructureKHR vkDestroyAccelerationStructureKHR;
+    PFN_vkGetAccelerationStructureBuildSizesKHR vkGetAccelerationStructureBuildSizesKHR;
+    PFN_vkCmdBuildAccelerationStructuresKHR vkCmdBuildAccelerationStructuresKHR;
+    PFN_vkGetAccelerationStructureDeviceAddressKHR vkGetAccelerationStructureDeviceAddressKHR;
+} lvContextExtensions;
+
 /**
  * @brief Context encapsulating the top-level Vulkan objects.
  */
@@ -35,6 +43,7 @@ typedef struct {
     VkQueue present_q;
 
     size_t frame_lag;
+    size_t frame_idx;
 
     VkCommandPool cmd_pool;
 
@@ -42,7 +51,7 @@ typedef struct {
 
     lvRefArray swapchains;
 
-    size_t vertex_bindings;
+    lvContextExtensions ext;
 } lvContext;
 
 static const lvContext lvContext_default = {0};

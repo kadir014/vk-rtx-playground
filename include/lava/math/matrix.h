@@ -14,15 +14,6 @@ typedef struct {
 
 
 /**
- * @brief Inline 4x4 matrix literal initialization.
- * 
- * @param m Array of elements in column-major order.
- * @return lvMatrix4
- */
-#define LV_MATRIX4(m) ((lvMatrix4){{m}})
-
-
-/**
  * @brief Constant 4x4 identity matrix.
  */
 static const lvMatrix4 lvMatrix4_identity = {
@@ -45,6 +36,31 @@ static const lvMatrix4 lvMatrix4_zero = {
         0.0f, 0.0f, 0.0f, 0.0f
     }
 };
+
+
+/**
+ * @brief Inline 4x4 matrix initialization.
+ * 
+ * @param m Array of elements in column-major order.
+ * @return lvMatrix4
+ */
+static inline lvMatrix4 lv_matrix4(float m[16]) {
+    return (lvMatrix4){{
+        m[0],  m[1],  m[2],  m[3],
+        m[4],  m[5],  m[6],  m[7],
+        m[8],  m[9],  m[10], m[11],
+        m[12], m[13], m[14], m[15]
+    }};
+}
+
+static inline lvMatrix4 lv_matrix4_s(float s) {
+    return (lvMatrix4){{
+        s, s, s, s,
+        s, s, s, s,
+        s, s, s, s,
+        s, s, s, s
+    }};
+}
 
 
 #define lvMatrix4_get(mat, row, col) (mat.m[(col) * 4 + (row)])

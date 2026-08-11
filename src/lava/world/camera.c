@@ -24,8 +24,8 @@ lvCamera lvCamera_new_perspective(
     );
 
     camera.position = lvVector3_zero;
-    camera.front = LV_VECTOR3(-1.0f, 0.0f, 0.0f);
-    camera.up = LV_VECTOR3(0.0f, 1.0f, 0.0f);
+    camera.front = lv_vector3(-1.0f, 0.0f, 0.0f);
+    camera.up = lv_vector3(0.0f, 1.0f, 0.0f);
 
     camera.yaw = -90.0f;
     camera.pitch = 0.0f;
@@ -48,7 +48,7 @@ void lvCamera_update(lvCamera *camera) {
     float yaw_s = lv_sinf(yaw_r);
 
     // spherical -> cartesian
-    camera->front = LV_VECTOR3(
+    camera->front = lv_vector3(
         yaw_c * pitch_c,
         pitch_s,
         yaw_s * pitch_c

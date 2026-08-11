@@ -84,21 +84,21 @@ int lvGraphicsPipelineBuilder_define_resource(
     lvGraphicsPipelineBuilder *builder,
     char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH],
     lvResourceType type,
-    lvResourceFreq freq,
+    lvResourceScope freq,
     VkShaderStageFlagBits stages,
     size_t size
 ) {
     size_t binding = 0;
-    if (freq == lvResourceFreq_GLOBAL) {
+    if (freq == lvResourceScope_GLOBAL) {
         binding = builder->set0_accumulate++;
     }
-    else if (freq == lvResourceFreq_MATERIAL) {
+    else if (freq == lvResourceScope_MATERIAL) {
         binding = builder->set1_accumulate++;
     }
-    else if (freq == lvResourceFreq_OBJECT) {
+    else if (freq == lvResourceScope_OBJECT) {
         binding = builder->set2_accumulate++;
     }
-    else if (freq == lvResourceFreq_STATIC) {
+    else if (freq == lvResourceScope_STATIC) {
         binding = builder->set3_accumulate++;
     }
 
@@ -133,7 +133,7 @@ int lvGraphicsPipelineBuilder_build(
     lvArray object_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
     lvArray static_set_bindings = lvArray_new(sizeof(VkDescriptorSetLayoutBinding));
 
-    size_t global_copies   = builder->set0_accumulate > 0 ? frame_lag : 0;
+    size_t global_copies   = builder->set0_accumulate > 0 ? 1 * frame_lag : 0;
     size_t material_copies = builder->set1_accumulate > 0 ? 1 * n_materials : 0;
     size_t object_copies   = builder->set2_accumulate > 0 ? frame_lag * n_models : 0;
     size_t static_copies   = builder->set3_accumulate > 0 ? 1 : 0;
@@ -169,6 +169,9 @@ int lvGraphicsPipelineBuilder_build(
         else if (resource_def.type == lvResourceType_SAMPLER) {
             desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         }
+        else if (resource_def.type == lvResourceType_ACCELERATION_STRUCTURE) {
+            desc_type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        }
 
         VkDescriptorSetLayoutBinding desc_binding = {
             .binding = resource_def.binding,
@@ -179,19 +182,19 @@ int lvGraphicsPipelineBuilder_build(
         };
 
         size_t copies = 0;
-        if (resource_def.freq == lvResourceFreq_GLOBAL) {
+        if (resource_def.freq == lvResourceScope_GLOBAL) {
             lvArray_add(&global_set_bindings, &desc_binding);
             copies = global_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_MATERIAL) {
+        else if (resource_def.freq == lvResourceScope_MATERIAL) {
             lvArray_add(&material_set_bindings, &desc_binding);
             copies = material_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_OBJECT) {
+        else if (resource_def.freq == lvResourceScope_OBJECT) {
             lvArray_add(&object_set_bindings, &desc_binding);
             copies = object_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_STATIC) {
+        else if (resource_def.freq == lvResourceScope_STATIC) {
             lvArray_add(&static_set_bindings, &desc_binding);
             copies = static_copies;
         }
@@ -396,6 +399,7 @@ int lvGraphicsPipelineBuilder_build(
     
     pipeline->uniform_slots = lvRefArray_new();
     pipeline->sampler_slots = lvRefArray_new();
+    pipeline->as_slots = lvRefArray_new();
 
     for (size_t i = 0; i < builder->resource_defs.size; i++) {
         lvGraphicsPipelineResourceDefinition resource_def = LV_ARRAY_AT(
@@ -405,54 +409,53 @@ int lvGraphicsPipelineBuilder_build(
         );
 
         size_t copies = 0;
-        if (resource_def.freq == lvResourceFreq_GLOBAL) {
+        if (resource_def.freq == lvResourceScope_GLOBAL) {
             copies = global_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_MATERIAL) {
+        else if (resource_def.freq == lvResourceScope_MATERIAL) {
             copies = material_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_OBJECT) {
+        else if (resource_def.freq == lvResourceScope_OBJECT) {
             copies = object_copies;
         }
-        else if (resource_def.freq == lvResourceFreq_STATIC) {
+        else if (resource_def.freq == lvResourceScope_STATIC) {
             copies = static_copies;
         }
 
-        // Allocating with 0 pool size is not allowed unless requested explicitly with extensions, but I'm not handling that shit
         if (copies == 0) {
             continue;
         }
 
         // Allocate buffer resources
 
+        size_t w = 0;
+        size_t h = 0;
+        VkDescriptorSet *res_set = NULL;
+
+        switch (resource_def.freq) {
+            case lvResourceScope_GLOBAL:
+                res_set = pipeline->global_sets;
+                w = frame_lag;
+                h = 1;
+                break;
+            case lvResourceScope_MATERIAL:
+                res_set = pipeline->material_sets;
+                w = n_materials;
+                h = 1;
+                break;
+            case lvResourceScope_OBJECT:
+                res_set = pipeline->object_sets;
+                w = n_models;
+                h = frame_lag;
+                break;
+            case lvResourceScope_STATIC:
+                res_set = pipeline->static_sets;
+                w = 1;
+                h = 1;
+                break;
+        }
+
         if (resource_def.type == lvResourceType_UNIFORM) {
-            size_t w = 0;
-            size_t h = 0;
-            VkDescriptorSet *uniform_sets = NULL;
-
-            switch (resource_def.freq) {
-                case lvResourceFreq_GLOBAL:
-                    uniform_sets = pipeline->global_sets;
-                    w = frame_lag;
-                    h = frame_lag;
-                    break;
-                case lvResourceFreq_MATERIAL:
-                    uniform_sets = pipeline->material_sets;
-                    w = n_materials;
-                    h = 1;
-                    break;
-                case lvResourceFreq_OBJECT:
-                    uniform_sets = pipeline->object_sets;
-                    w = n_models;
-                    h = frame_lag;
-                    break;
-                case lvResourceFreq_STATIC:
-                    uniform_sets = pipeline->static_sets;
-                    w = 1;
-                    h = 1;
-                    break;
-            }
-
             for (size_t y = 0; y < h; y++) {
                 for (size_t x = 0; x < w; x++) {
 
@@ -463,7 +466,7 @@ int lvGraphicsPipelineBuilder_build(
                     }
 
                     size_t idx2d[2] = {y, x};
-                    memcpy(uniform_slot->idx, idx2d, sizeof(idx2d) * 2);
+                    memcpy(uniform_slot->idx, idx2d, sizeof(idx2d));
 
                     memcpy(uniform_slot->name, resource_def.name, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
 
@@ -524,7 +527,7 @@ int lvGraphicsPipelineBuilder_build(
                     VkWriteDescriptorSet desc_write = {
                         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         .pNext = NULL,
-                        .dstSet = uniform_sets[set_idx],
+                        .dstSet = res_set[set_idx],
                         .dstBinding = resource_def.binding,
                         .dstArrayElement = 0,
                         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -539,33 +542,6 @@ int lvGraphicsPipelineBuilder_build(
             }
         }
         else if (resource_def.type == lvResourceType_SAMPLER) {
-            size_t w = 0;
-            size_t h = 0;
-            VkDescriptorSet *sampler_sets = NULL;
-
-            switch (resource_def.freq) {
-                case lvResourceFreq_GLOBAL:
-                    sampler_sets = pipeline->global_sets;
-                    w = frame_lag;
-                    h = frame_lag;
-                    break;
-                case lvResourceFreq_MATERIAL:
-                    sampler_sets = pipeline->material_sets;
-                    w = n_materials;
-                    h = 1;
-                    break;
-                case lvResourceFreq_OBJECT:
-                    sampler_sets = pipeline->object_sets;
-                    w = n_models;
-                    h = frame_lag;
-                    break;
-                case lvResourceFreq_STATIC:
-                    sampler_sets = pipeline->static_sets;
-                    w = 1;
-                    h = 1;
-                    break;
-            }
-
             for (size_t y = 0; y < h; y++) {
                 for (size_t x = 0; x < w; x++) {
 
@@ -576,7 +552,7 @@ int lvGraphicsPipelineBuilder_build(
                     }
 
                     size_t idx2d[2] = {y, x};
-                    memcpy(sampler_slot->idx, idx2d, sizeof(idx2d) * 2);
+                    memcpy(sampler_slot->idx, idx2d, sizeof(idx2d));
 
                     char *material_name_at_x = builder->materials[x].name;
                     memcpy(sampler_slot->name, material_name_at_x, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
@@ -596,7 +572,7 @@ int lvGraphicsPipelineBuilder_build(
                     VkWriteDescriptorSet desc_write_img = {
                         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         .pNext = NULL,
-                        .dstSet = sampler_sets[set_idx],
+                        .dstSet = res_set[set_idx],
                         .dstBinding = resource_def.binding,
                         .dstArrayElement = 0,
                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -607,6 +583,54 @@ int lvGraphicsPipelineBuilder_build(
                     };
 
                     vkUpdateDescriptorSets(ctx->device, 1, &desc_write_img, 0, NULL);
+                }
+            }
+        }
+        else if (resource_def.type == lvResourceType_ACCELERATION_STRUCTURE) {
+            for (size_t y = 0; y < h; y++) {
+                for (size_t x = 0; x < w; x++) {
+
+                    lvGrahpicsPipelineAccelerationStructureSlot *as_slot = LV_MALLOC(sizeof(lvGrahpicsPipelineAccelerationStructureSlot));
+                    if (!as_slot) {
+                        printf("Failed to allocate for acceleration structure slot.\n");
+                        return 1;
+                    }
+
+                    size_t idx2d[2] = {y, x};
+                    memcpy(as_slot->idx, idx2d, sizeof(idx2d));
+
+                    memcpy(as_slot->name, resource_def.name, sizeof(char) * LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH);
+
+                    as_slot->as = builder->scene->tlas;
+
+                    VkWriteDescriptorSetAccelerationStructureKHR as_info = {
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+                        .pNext = NULL,
+                        .accelerationStructureCount = 1,
+                        .pAccelerationStructures = &builder->scene->tlas
+                    };
+
+                    if (lvRefArray_add(&pipeline->as_slots, as_slot) != 0) {
+                        printf("Failed to add slot.\n");
+                        return 1;
+                    }
+
+                    size_t set_idx = y * w + x;
+
+                    VkWriteDescriptorSet desc_write_as = {
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext = &as_info,
+                        .dstSet = res_set[set_idx],
+                        .dstBinding = resource_def.binding,
+                        .dstArrayElement = 0,
+                        .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+                        .descriptorCount = 1,
+                        .pBufferInfo = NULL,
+                        .pImageInfo = NULL,
+                        .pTexelBufferView = NULL
+                    };
+
+                    vkUpdateDescriptorSets(ctx->device, 1, &desc_write_as, 0, NULL);
                 }
             }
         }
@@ -861,6 +885,12 @@ void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx) {
         LV_FREE(sampler_slot);
     }
     lvRefArray_free(&pipeline->sampler_slots);
+
+    for (size_t i = 0; i < pipeline->as_slots.size; i++) {
+        lvGrahpicsPipelineAccelerationStructureSlot *as_slot = pipeline->as_slots.data[i];
+        LV_FREE(as_slot);
+    }
+    lvRefArray_free(&pipeline->as_slots);
 
     LV_FREE(pipeline->global_sets);
     LV_FREE(pipeline->material_sets);

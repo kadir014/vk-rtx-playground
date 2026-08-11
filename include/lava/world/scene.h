@@ -14,6 +14,8 @@ typedef struct {
     lvCamera *camera;
     lvArray models;
     lvArray materials;
+
+    VkAccelerationStructureKHR tlas;
 } lvScene;
 
 lvScene lvScene_new(lvCamera *camera);

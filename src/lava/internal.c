@@ -31,23 +31,25 @@ static void ensure_initialized() {
 
 static bool add(Allocation *alloc) {
     if (g_size == g_capacity) {
-        g_capacity = (size_t)((float)g_capacity * GROWTH_FACTOR);
+        size_t new_capacity = (size_t)((float)g_capacity * GROWTH_FACTOR);
 
         Allocation *new_allocs = realloc(
-            g_allocs, sizeof(Allocation) * g_capacity
+            g_allocs,
+            sizeof(Allocation) * new_capacity
         );
+
         if (!new_allocs) {
             return false;
         }
 
         g_allocs = new_allocs;
+        g_capacity = new_capacity;
     }
 
     g_allocs[g_size++] = *alloc;
 
     return true;
 }
-
 static void pop(size_t index) {
     if (g_size == 0 || index >= g_size) {
         return;
@@ -96,6 +98,12 @@ void *_lv_realloc(void *ptr, size_t new_size, const char *file, uint32_t line) {
     // realloc(NULL, ...) is valid in C
     if (ptr == NULL) {
         return _lv_malloc(new_size, file, line);
+    }
+
+    // realloc(..., 0) is problematic
+    if (new_size == 0) {
+        _lv_free(ptr, file, line);
+        return NULL;
     }
 
     bool found = false;
@@ -175,6 +183,12 @@ void lv_check_leaks() {
 
         if (g_size == 0) {
             printf("\n[LV_DEBUG] There are no leaked allocations.\n");
+
+            free(g_allocs);
+            g_allocs = NULL;
+            g_size = 0;
+            g_capacity = 0;
+
             return;
         }
 

@@ -14,7 +14,7 @@
 typedef struct {
     char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH];
     lvResourceType type;
-    lvResourceFreq freq;
+    lvResourceScope freq;
     VkShaderStageFlagBits stages;
     uint32_t binding;
     size_t size;
@@ -59,7 +59,7 @@ int lvGraphicsPipelineBuilder_load_shader(
  * @param builder Pointer to lvGraphicsPipelineBuilder.
  * @param name Name of the resource.
  * @param type Type of the resource.
- * @param freq Update frequencey of the resource.
+ * @param scope Resource scope.
  * @param stages Shader stages this resource is accessed from.
  * @param size Size of the resource (only for uniforms, leave 0 for samplers).
  * @return `0` if successful.
@@ -68,7 +68,7 @@ int lvGraphicsPipelineBuilder_define_resource(
     lvGraphicsPipelineBuilder *builder,
     char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH],
     lvResourceType type,
-    lvResourceFreq freq,
+    lvResourceScope scope,
     VkShaderStageFlagBits stages,
     size_t size
 );
@@ -89,6 +89,12 @@ typedef struct {
 } lvGraphicsPipelineSamplerSlot;
 
 typedef struct {
+    char name[LV_GRAPHICS_PIPELINE_RESOURCE_NAME_LENGTH];
+    size_t idx[2];
+    VkAccelerationStructureKHR as;
+} lvGrahpicsPipelineAccelerationStructureSlot;
+
+typedef struct {
     VkPipeline pipeline;
     VkPipelineLayout layout;
     VkDescriptorPool desc_pool;
@@ -106,22 +112,12 @@ typedef struct {
     // TODO: Needs a name -> slot hashmap, but this is OK for now...
     lvRefArray uniform_slots;
     lvRefArray sampler_slots;
+    lvRefArray as_slots;
 } lvGraphicsPipeline;
 
 int lvGraphicsPipelineBuilder_build(
     lvGraphicsPipelineBuilder *builder,
     lvGraphicsPipeline *pipeline
-);
-
-int lvGraphicsPipeline_init(
-    lvGraphicsPipeline *pipeline,
-    lvContext *ctx,
-    size_t swapchain_idx,
-    const char *vertex_shader_filepath,
-    const char *fragment_shader_filepath,
-    lvRefArray *meshes,
-    lvArray *uniforms,
-    lvArray *descriptor_bindings
 );
 
 void lvGraphicsPipeline_free(lvGraphicsPipeline *pipeline, lvContext *ctx);

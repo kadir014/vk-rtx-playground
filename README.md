@@ -48,7 +48,6 @@ $ ./main
 
 # Attributions
 - [Stanford Bunny](https://graphics.stanford.edu/data/3Dscanrep/) — Stanford Computer Graphics Laboratory
-- [Low Poly Stanford Bunny](https://www.thingiverse.com/thing:151081) — Licensed under [CC-BY-NC](https://creativecommons.org/licenses/by-nc/4.0/)
 - ["Fantasy Table Low Poly Stylised" by Kadre](https://sketchfab.com/3d-models/fantasy-table-low-poly-stylised-50a4b86e49ce4b52a7068c79e7f04c06) — Licensed under [CC-BY](https://creativecommons.org/licenses/by/4.0/)
 - ["Derelict Airfield 02" HDRI sky texture](https://polyhaven.com/a/derelict_airfield_02) — Licensed under [CC0](https://polyhaven.com/license)
 - ["Statue photograph" by Rodrigo Curi](https://unsplash.com/photos/brown-concrete-statue-under-blue-sky-during-daytime-TqSgXhalVQ0) — Licensed under [Unsplash License](https://unsplash.com/license)

@@ -50,5 +50,12 @@ void lv_copy_buffer_to_image(
     lvImage *dst_image
 );
 
+void lv_copy_buffer_to_buffer(
+    lvContext *ctx,
+    lvBuffer *src_buffer,
+    lvBuffer *dst_buffer,
+    VkDeviceSize size
+);
+
 
 #endif // LAVA_VK_HELPERS_H

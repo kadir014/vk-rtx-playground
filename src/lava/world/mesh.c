@@ -11,8 +11,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
     mesh->n_vertices = obj_mesh.tris.size * 3;
 
     {
-        lvVector3 *vertices = LV_MALLOC(sizeof(lvVector3) * mesh->n_vertices);
-        if (!vertices) {
+        size_t size = sizeof(lvVector3) * mesh->n_vertices;
+        mesh->vertices_arr = LV_MALLOC(size);
+        if (!mesh->vertices_arr ) {
             printf("Failed to allocate.\n");
             return 1;
         }
@@ -22,9 +23,9 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
 
             for (size_t i = 0; i < 3; i++) {
-                vertices[j].x = tri.vertices[i].x;
-                vertices[j].y = tri.vertices[i].y;
-                vertices[j].z = tri.vertices[i].z;
+                mesh->vertices_arr [j].x = tri.vertices[i].x;
+                mesh->vertices_arr [j].y = tri.vertices[i].y;
+                mesh->vertices_arr [j].z = tri.vertices[i].z;
                 j += 1;
             }
         }
@@ -34,24 +35,67 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             .format = VK_FORMAT_R32G32B32_SFLOAT,
             .stride = sizeof(lvVector3),
         };
-        if (lvBuffer_init_vertex(&mesh->vertices, ctx, sizeof(lvVector3) * mesh->n_vertices, 0) != 0) {
+        if (lvBuffer_init_vertex(&mesh->vertices, ctx, size, 0, true) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
 
-        void *vertex_buffer_data;
-        if (vmaMapMemory(ctx->allocator, mesh->vertices._allocation, &vertex_buffer_data) != VK_SUCCESS) {
-            printf("Memory mapping failed.\n");
+
+
+        VkBufferCreateInfo staging_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .size = size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+
+        VmaAllocationCreateInfo staging_alloc_info = {
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+        };
+
+        lvBuffer staging;
+        if (
+            vmaCreateBuffer(
+                ctx->allocator,
+                &staging_info,
+                &staging_alloc_info,
+                &staging._buffer,
+                &staging._allocation,
+                NULL
+            ) != VK_SUCCESS
+        ) {
+            printf("Failed to create staging buffer.");
             return 1;
         }
-        memcpy(vertex_buffer_data, vertices, sizeof(lvVector3) * mesh->n_vertices);
-        vmaUnmapMemory(ctx->allocator, mesh->vertices._allocation);
 
-        LV_FREE(vertices);
+        void *staging_mapped;
+        vmaMapMemory(
+            ctx->allocator,
+            staging._allocation,
+            &staging_mapped
+        );
+        memcpy(staging_mapped, mesh->vertices_arr , size);
+        vmaUnmapMemory(ctx->allocator, staging._allocation);
+
+        lv_copy_buffer_to_buffer(
+            ctx,
+            staging,
+            mesh->vertices,
+            size
+        );
+        vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);
+
+
+
+        //LV_FREE(vertices);
     }
 
     {
-        lvVector2 *uvs = LV_MALLOC(sizeof(lvVector2) * mesh->n_vertices);
+        size_t size = sizeof(lvVector2) * mesh->n_vertices;
+        lvVector2 *uvs = LV_MALLOC(size);
         size_t j = 0;
         for (size_t tri_idx = 0; tri_idx < obj_mesh.tris.size; tri_idx++) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
@@ -68,24 +112,67 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             .format = VK_FORMAT_R32G32_SFLOAT,
             .stride = sizeof(lvVector2),
         };
-        if (lvBuffer_init_vertex(&mesh->uvs, ctx, sizeof(lvVector2) * mesh->n_vertices, 1) != 0) {
+        if (lvBuffer_init_vertex(&mesh->uvs, ctx, size, 1, false) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
 
-        void *uv_buffer_data;
-        if (vmaMapMemory(ctx->allocator, mesh->uvs._allocation, &uv_buffer_data) != VK_SUCCESS) {
-            printf("Memory mapping failed.\n");
+        
+
+        VkBufferCreateInfo staging_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .size = size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+
+        VmaAllocationCreateInfo staging_alloc_info = {
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+        };
+
+        lvBuffer staging;
+        if (
+            vmaCreateBuffer(
+                ctx->allocator,
+                &staging_info,
+                &staging_alloc_info,
+                &staging._buffer,
+                &staging._allocation,
+                NULL
+            ) != VK_SUCCESS
+        ) {
+            printf("Failed to create staging buffer.");
             return 1;
         }
-        memcpy(uv_buffer_data, uvs, sizeof(lvVector2) * mesh->n_vertices);
-        vmaUnmapMemory(ctx->allocator, mesh->uvs._allocation);
+
+        void *staging_mapped;
+        vmaMapMemory(
+            ctx->allocator,
+            staging._allocation,
+            &staging_mapped
+        );
+        memcpy(staging_mapped, uvs, size);
+        vmaUnmapMemory(ctx->allocator, staging._allocation);
+
+        lv_copy_buffer_to_buffer(
+            ctx,
+            staging,
+            mesh->uvs,
+            size
+        );
+        vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);
+
+
 
         LV_FREE(uvs);
     }
 
     {
-        lvVector3 *normals = LV_MALLOC(sizeof(lvVector3) * mesh->n_vertices);
+        size_t size = sizeof(lvVector3) * mesh->n_vertices;
+        lvVector3 *normals = LV_MALLOC(size);
         size_t j = 0;
         for (size_t tri_idx = 0; tri_idx < obj_mesh.tris.size; tri_idx++) {
             lvOBJTri tri = LV_ARRAY_AT(&obj_mesh.tris, tri_idx, lvOBJTri);
@@ -103,18 +190,60 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
             .format = VK_FORMAT_R32G32B32_SFLOAT,
             .stride = sizeof(lvVector3),
         };
-        if (lvBuffer_init_vertex(&mesh->normals, ctx, sizeof(lvVector3) * mesh->n_vertices, 2) != 0) {
+        if (lvBuffer_init_vertex(&mesh->normals, ctx, size, 2, false) != 0) {
             printf("Buffer creation failed.\n");
             return 1;
         }
 
-        void *normal_buffer_data;
-        if (vmaMapMemory(ctx->allocator, mesh->normals._allocation, &normal_buffer_data) != VK_SUCCESS) {
-            printf("Memory mapping failed.\n");
+        
+
+        VkBufferCreateInfo staging_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = NULL,
+            .flags = 0,
+            .size = size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+        };
+
+        VmaAllocationCreateInfo staging_alloc_info = {
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+        };
+
+        lvBuffer staging;
+        if (
+            vmaCreateBuffer(
+                ctx->allocator,
+                &staging_info,
+                &staging_alloc_info,
+                &staging._buffer,
+                &staging._allocation,
+                NULL
+            ) != VK_SUCCESS
+        ) {
+            printf("Failed to create staging buffer.");
             return 1;
         }
-        memcpy(normal_buffer_data, normals, sizeof(lvVector3) * mesh->n_vertices);
-        vmaUnmapMemory(ctx->allocator, mesh->normals._allocation);
+
+        void *staging_mapped;
+        vmaMapMemory(
+            ctx->allocator,
+            staging._allocation,
+            &staging_mapped
+        );
+        memcpy(staging_mapped, normals, size);
+        vmaUnmapMemory(ctx->allocator, staging._allocation);
+
+        lv_copy_buffer_to_buffer(
+            ctx,
+            staging,
+            mesh->normals,
+            size
+        );
+        vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);
+
+        
 
         LV_FREE(normals);
     }
@@ -123,6 +252,7 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
 }
 
 void lvMesh_free(lvMesh *mesh, lvContext *ctx) {
+    LV_FREE(mesh->vertices_arr);
     lvBuffer_free(&mesh->normals, ctx);
     lvBuffer_free(&mesh->uvs, ctx);
     lvBuffer_free(&mesh->vertices, ctx);

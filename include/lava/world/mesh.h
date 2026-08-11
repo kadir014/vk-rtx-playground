@@ -9,6 +9,7 @@
 
 typedef struct {
     size_t n_vertices;
+    lvVector3 *vertices_arr;
     lvBuffer vertices;
     lvBuffer normals;
     lvBuffer uvs;

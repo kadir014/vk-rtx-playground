@@ -130,6 +130,29 @@ static int create_instance(lvContext *ctx, SDL_Window *window) {
     return ret;
 }
 
+static inline void physical_device_type_as_str(char *buffer, VkPhysicalDeviceType type) {
+    switch (type) {
+        case VK_PHYSICAL_DEVICE_TYPE_CPU:
+            sprintf(buffer, "CPU");
+            break;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+            sprintf(buffer, "Virtual");
+            break;
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+            sprintf(buffer, "Integrated");
+            break;
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+            sprintf(buffer, "Discrete");
+            break;
+        case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+            sprintf(buffer, "Other");
+            break;
+        default:
+            sprintf(buffer, "Unknown");
+            break;
+    }
+}
+
 /**
  * @brief Fetch the physical device.
  * 
@@ -148,6 +171,33 @@ int find_physical_device(lvContext *ctx) {
     VkPhysicalDevice *phydevices = LV_MALLOC(sizeof(VkPhysicalDevice) * n_phydevices);
     vkEnumeratePhysicalDevices(ctx->inst, &n_phydevices, phydevices);
 
+    printf("%u available physical device(s) on the system:\n", n_phydevices);
+
+    for (uint32_t i = 0; i < n_phydevices; i++) {
+        VkPhysicalDeviceProperties phydevice_info;
+        vkGetPhysicalDeviceProperties(phydevices[i], &phydevice_info);
+
+        char device_type_str[16];
+        physical_device_type_as_str(device_type_str, phydevice_info.deviceType);
+
+        uint32_t vk_variant = VK_API_VERSION_VARIANT(phydevice_info.apiVersion);
+        uint32_t vk_major = VK_API_VERSION_MAJOR(phydevice_info.apiVersion);
+        uint32_t vk_minor = VK_API_VERSION_MINOR(phydevice_info.apiVersion);
+        uint32_t vk_patch = VK_API_VERSION_PATCH(phydevice_info.apiVersion);
+
+        printf(
+            "  Physical device #%u:\n"
+            "  - Name:   %s\n"
+            "  - Type:   %s\n"
+            "  - Vulkan: %u.%u.%u (variant=%u)\n"
+            "\n",
+            i,
+            phydevice_info.deviceName,
+            device_type_str,
+            vk_major, vk_minor, vk_patch, vk_variant
+        );
+    }
+
     uint32_t discrete_idx = LV_INVALID_INDEX_U32;
     for (uint32_t i = 0; i < n_phydevices; i++) {
         VkPhysicalDeviceProperties phydevice_info;
@@ -159,7 +209,7 @@ int find_physical_device(lvContext *ctx) {
         }
     }
 
-    // Try to choose the discrete GPU, if doesn't exist, fallback to the first one
+    // Try to choose the discrete GPU, if doesn't exist, fallback to the first one.
     if (discrete_idx == LV_INVALID_INDEX_U32) {
         ctx->phydevice = phydevices[discrete_idx];
     }
@@ -172,24 +222,42 @@ int find_physical_device(lvContext *ctx) {
     VkPhysicalDeviceProperties phydevice_info;
     vkGetPhysicalDeviceProperties(ctx->phydevice, &phydevice_info);
 
+    char device_type_str[16];
+    physical_device_type_as_str(device_type_str, phydevice_info.deviceType);
+
+    uint32_t vk_variant = VK_API_VERSION_VARIANT(phydevice_info.apiVersion);
+    uint32_t vk_major = VK_API_VERSION_MAJOR(phydevice_info.apiVersion);
+    uint32_t vk_minor = VK_API_VERSION_MINOR(phydevice_info.apiVersion);
+    uint32_t vk_patch = VK_API_VERSION_PATCH(phydevice_info.apiVersion);
+
     printf(
-        "Chosen physical device properties:\n"
-        "- Name: %s\n"
+        "Chosen physical device:\n"
+        "- Name:   %s\n"
+        "- Type:   %s\n"
+        "- Vulkan: %u.%u.%u (variant=%u)\n"
         "- Max 2D image dimension:        %u\n"
         "- Max framebuffer color samples: %u\n"
         "- Max framebuffer resolution:    %ux%u\n"
         "- Max vertex input attributes:   %u\n"
         "- Max memory allocations:        %u\n"
         "- Max sampler anisotropy:        %.1f\n"
+        "- Max bound descriptor sets:     %u\n"
+        "- Max descriptor sets (uniform): %u\n"
+        "- Max descriptor sets (sampler): %u\n"
         "\n",
         phydevice_info.deviceName,
+        device_type_str,
+        vk_major, vk_minor, vk_patch, vk_variant,
         phydevice_info.limits.maxImageDimension2D,
-        phydevice_info.limits.framebufferColorSampleCounts,
+        (uint32_t)phydevice_info.limits.framebufferColorSampleCounts,
         phydevice_info.limits.maxFramebufferWidth,
         phydevice_info.limits.maxFramebufferHeight,
         phydevice_info.limits.maxVertexInputAttributes,
         phydevice_info.limits.maxMemoryAllocationCount,
-        phydevice_info.limits.maxSamplerAnisotropy
+        phydevice_info.limits.maxSamplerAnisotropy,
+        phydevice_info.limits.maxBoundDescriptorSets,
+        phydevice_info.limits.maxDescriptorSetUniformBuffers,
+        phydevice_info.limits.maxDescriptorSetSamplers
     );
 
     return 0;
@@ -251,20 +319,39 @@ static int validate_physical_device(
     VkExtensionProperties *available_extensions = LV_MALLOC(sizeof(VkExtensionProperties) * n_extensions);
     vkEnumerateDeviceExtensionProperties(phydevice, NULL, &n_extensions, available_extensions);
 
-    VkPhysicalDeviceDynamicRenderingFeatures dr = {
+    // ENABLED FEATURES:
+    // Dynamic rendering
+    // Synchronization2
+    // Sampler anisotropy
+
+    VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
         .pNext = NULL,
         .dynamicRendering = VK_FALSE
     };
 
+    VkPhysicalDeviceSynchronization2Features sync2_feat = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+        .pNext = &dynamic_rendering,
+        .synchronization2 = VK_FALSE
+    };
+
     VkPhysicalDeviceFeatures2 features = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = &dr,
-        .features.samplerAnisotropy = VK_TRUE
+        .pNext = &sync2_feat,
+        .features.samplerAnisotropy = VK_FALSE
     };
     vkGetPhysicalDeviceFeatures2(phydevice, &features);
 
-    printf("GPU supports dynamic rendering? %u\n\n", dr.dynamicRendering);
+    printf(
+        "GPU supports dynamic rendering? %u\n"
+        "GPU supports Synchronization2? %u\n"
+        "GPU supports sampler anisotropy? %u\n"
+        "\n",
+        dynamic_rendering.dynamicRendering,
+        sync2_feat.synchronization2,
+        features.features.samplerAnisotropy
+    );
 
     // printf("Found %u available extensions for the current physical device:\n", n_extensions);
     // for (uint32_t i = 0; i < n_extensions; i++) {
@@ -303,11 +390,16 @@ static int validate_physical_device(
  *         `3` if queue families doesn't meet requirements.
  */
 static int create_logical_device(lvContext *ctx) {
-    #define N_REQUESTED_DEVICE_EXTENSIONS 3
+    #define N_REQUESTED_DEVICE_EXTENSIONS 6
     const char *requested_device_extensions[N_REQUESTED_DEVICE_EXTENSIONS] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
-        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+        
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+
+        VK_KHR_RAY_QUERY_EXTENSION_NAME,
     };
 
     // Validate the GPU and necessary queue families before creating logical device
@@ -343,30 +435,43 @@ static int create_logical_device(lvContext *ctx) {
         };
     }
 
-    VkPhysicalDeviceFeatures device_features = {
-        .samplerAnisotropy = VK_TRUE
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+        .pNext = NULL,
+        .rayQuery = VK_TRUE
     };
-
-    // ENABLED FEATURES:
-    // Dynamic rendering
-    // Synchronization2
-    // Sampler anisotropy
 
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
-        .pNext = NULL,
+        .pNext = &ray_query,
         .dynamicRendering = VK_TRUE
     };
 
     VkPhysicalDeviceSynchronization2Features sync2_feat = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         .pNext = &dynamic_rendering,
-        .synchronization2 = VK_TRUE
+        .synchronization2 = VK_TRUE,
+    };
+
+    VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
+        .bufferDeviceAddress = VK_TRUE,
+        .pNext = &sync2_feat
+    };
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .accelerationStructure = VK_TRUE,
+        .pNext = &buffer_device_address,
+    };
+
+    VkPhysicalDeviceFeatures device_features = {
+        .samplerAnisotropy = VK_TRUE
     };
 
     VkDeviceCreateInfo device_create_info = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &sync2_feat,
+        .pNext = &acceleration_structure,
         .queueCreateInfoCount = N_UNIQUE_FAMILIES,
         .pQueueCreateInfos = queue_create_infos,
         .pEnabledFeatures = &device_features,
@@ -386,6 +491,23 @@ static int create_logical_device(lvContext *ctx) {
 
     return 0;
 }
+
+static void load_extension_prototypes(lvContext *ctx) {
+    ctx->ext.vkCreateAccelerationStructureKHR =
+    (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(ctx->device, "vkCreateAccelerationStructureKHR");
+
+    ctx->ext.vkDestroyAccelerationStructureKHR =
+    (PFN_vkDestroyAccelerationStructureKHR)vkGetDeviceProcAddr(ctx->device, "vkDestroyAccelerationStructureKHR");
+
+    ctx->ext.vkGetAccelerationStructureBuildSizesKHR =
+    (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(ctx->device, "vkGetAccelerationStructureBuildSizesKHR");
+
+    ctx->ext.vkCmdBuildAccelerationStructuresKHR =
+    (PFN_vkCmdBuildAccelerationStructuresKHR)vkGetDeviceProcAddr(ctx->device, "vkCmdBuildAccelerationStructuresKHR");
+
+    ctx->ext.vkGetAccelerationStructureDeviceAddressKHR =
+    (PFN_vkGetAccelerationStructureDeviceAddressKHR)vkGetDeviceProcAddr(ctx->device, "vkGetAccelerationStructureDeviceAddressKHR");
+} 
 
 void lvContext_request_validation_layer(lvContext *ctx, const char *layer_name) {
     // Ensure the request queue is initialized
@@ -416,6 +538,7 @@ int lvContext_init(lvContext *ctx, SDL_Window *window) {
         .physicalDevice = ctx->phydevice,
         .device = ctx->device,
         .instance = ctx->inst,
+        .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT
         // TODO: .vulkanApiVersion = 
     };
 
@@ -426,14 +549,15 @@ int lvContext_init(lvContext *ctx, SDL_Window *window) {
 
     ctx->swapchains = lvRefArray_new();
 
-    ctx->vertex_bindings = 0;
-
     ctx->frame_lag = LV_CONTEXT_DEFAULT_FRAME_LAG;
+    ctx->frame_idx = 0;
 
     // Clean up creation info
     if (ctx->_creation.requested_layers.capacity != 0) {
         lvRefArray_free(&ctx->_creation.requested_layers);
     }
+
+    load_extension_prototypes(ctx);
 
     return 0;
 }

@@ -1,4 +1,5 @@
 #include "lava/vk/helpers.h"
+#include "lava/core/log.h"
 
 
 VkCommandBuffer lv_begin_single_time_cmd(lvContext *ctx) {
@@ -11,7 +12,9 @@ VkCommandBuffer lv_begin_single_time_cmd(lvContext *ctx) {
     };
 
     VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
-    vkAllocateCommandBuffers(ctx->device, &alloc_info, &cmd_buf);
+    if (vkAllocateCommandBuffers(ctx->device, &alloc_info, &cmd_buf) != VK_SUCCESS) {
+        lv_fatal("Failed to create single time command buffer.");
+    }
 
     VkCommandBufferBeginInfo begin_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -19,14 +22,18 @@ VkCommandBuffer lv_begin_single_time_cmd(lvContext *ctx) {
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
     };
 
-    vkBeginCommandBuffer(cmd_buf, &begin_info);
+    if (vkBeginCommandBuffer(cmd_buf, &begin_info) != VK_SUCCESS) {
+        lv_fatal("Failed in single time vkBeginCommandBuffer.");
+    }
 
     return cmd_buf;
 }
 
 void lv_end_single_time_cmd(lvContext *ctx, VkCommandBuffer cmd_buf) {
     // TODO VK_RESULT CHECKS
-    vkEndCommandBuffer(cmd_buf);
+    if (vkEndCommandBuffer(cmd_buf) != VK_SUCCESS) {
+        lv_fatal("Failed in single time vkEndCommandBuffer.");
+    }
 
     VkSubmitInfo submit_info = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -35,8 +42,12 @@ void lv_end_single_time_cmd(lvContext *ctx, VkCommandBuffer cmd_buf) {
         .pCommandBuffers = &cmd_buf
     };
 
-    vkQueueSubmit(ctx->graphics_q, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(ctx->graphics_q);
+    if (vkQueueSubmit(ctx->graphics_q, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS) {
+        lv_fatal("Failed in single time vkQueueSubmit.");
+    }
+    if (vkQueueWaitIdle(ctx->graphics_q) != VK_SUCCESS) {
+        lv_fatal("Failed in single time vkQueueWaitIdle.");
+    }
 
     // Command buffers are usually freed with memory pool, but this buffer
     // is created every time a "single time" buffer is requested, so better
@@ -144,6 +155,27 @@ void lv_copy_buffer_to_image(
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
         &region
+    );
+
+    lv_end_single_time_cmd(ctx, cmd_buf);
+}
+
+void lv_copy_buffer_to_buffer(
+    lvContext *ctx,
+    lvBuffer *src_buffer,
+    lvBuffer *dst_buffer,
+    VkDeviceSize size
+) {
+    VkCommandBuffer cmd_buf = lv_begin_single_time_cmd(ctx);
+
+    VkBufferCopy copy_region = {
+        .size = size,
+        .srcOffset = 0,
+        .dstOffset = 0
+    };
+
+    vkCmdCopyBuffer(
+        cmd_buf, src_buffer->_buffer, dst_buffer->_buffer, 1, &copy_region
     );
 
     lv_end_single_time_cmd(ctx, cmd_buf);
