@@ -127,7 +127,11 @@ typedef struct {
  * 
  * @param func Function to execute.
  */
-#define TT_RUN_TEST(func) {test.current = #func; test.internal_tests = -1; ##func(&test);}
+#define TT_RUN_TEST(func) {   \
+    test.current = #func;     \
+    test.internal_tests = -1; \
+    func(&test);              \
+}
 
 /**
  * @brief Print a final report of total unit tests ran.

@@ -103,7 +103,7 @@ int lvGraphicsPipelineBuilder_define_resource(
     }
 
     lvGraphicsPipelineResourceDefinition resource_def = {
-        .name = 0,
+        .name = {0},
         .type = type,
         .freq = freq,
         .stages = stages,
@@ -933,9 +933,6 @@ int lvGraphicsPipeline_set_uniform(
     if (!found_slot) {
         return 1;
     }
-
-    size_t frame_idx = idx[0];
-    size_t obj_idx = idx[1];
 
     memcpy(found_slot->mapped, data, found_slot->size);
 

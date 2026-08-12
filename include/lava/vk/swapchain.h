@@ -35,10 +35,16 @@ typedef struct {
  * 
  * @param swapchain Pointer to swapchain to initialize.
  * @param ctx Context.
- * @poram frame_lag TODO
+ * @param preferred_extent_width TODO
+ * @param preferred_extent_height TODO
  * @return `0` if successful.
  */
-int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag);
+int lvSwapchain_init(
+    lvSwapchain *swapchain,
+    lvContext *ctx,
+    uint32_t preferred_extent_width,
+    uint32_t preferred_extent_height
+);
 
 void lvSwapchain_free(lvSwapchain *swapchain, lvContext *ctx);
 

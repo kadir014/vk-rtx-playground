@@ -222,8 +222,7 @@ void lv_check_leaks() {
 
         printf(
             PRINT_SEPARATOR "\n"
-            "[LV_DEBUG] Finished allocation report.\n",
-            g_size
+            "[LV_DEBUG] Finished allocation report.\n"
         );
 
         free(g_allocs);

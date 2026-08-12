@@ -1,6 +1,7 @@
 #include "lava/world/mesh.h"
 #include "lava/containers/array.h"
 #include "lava/math/vector.h"
+#include "lava/vk/helpers.h"
 
 
 int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
@@ -82,8 +83,8 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
 
         lv_copy_buffer_to_buffer(
             ctx,
-            staging,
-            mesh->vertices,
+            &staging,
+            &mesh->vertices,
             size
         );
         vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);
@@ -159,8 +160,8 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
 
         lv_copy_buffer_to_buffer(
             ctx,
-            staging,
-            mesh->uvs,
+            &staging,
+            &mesh->uvs,
             size
         );
         vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);
@@ -237,8 +238,8 @@ int lvMesh_init(lvMesh *mesh, lvContext *ctx, lvOBJMesh obj_mesh) {
 
         lv_copy_buffer_to_buffer(
             ctx,
-            staging,
-            mesh->normals,
+            &staging,
+            &mesh->normals,
             size
         );
         vmaDestroyBuffer(ctx->allocator, staging._buffer, staging._allocation);

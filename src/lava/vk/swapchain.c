@@ -49,7 +49,12 @@ static lvSwapChainSupport get_swap_chain_support(
     return sc;
 }
 
-int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag) {
+int lvSwapchain_init(
+    lvSwapchain *swapchain,
+    lvContext *ctx,
+    uint32_t preferred_extent_width,
+    uint32_t preferred_extent_height
+) {
     lvSwapChainSupport sc = get_swap_chain_support(ctx->phydevice, ctx->surface);
 
     // TODO: Simpler enums to choose color spaces, formats and VSYNC mode before creating SC
@@ -78,6 +83,12 @@ int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag) {
 
     // TODO: Higher DPI stuff
     VkExtent2D best_extent = sc.capabilities.currentExtent;
+
+    if (best_extent.width == UINT32_MAX || best_extent.height == UINT32_MAX) {
+        // TODO: Clamp between device limits
+        best_extent.width = preferred_extent_width;
+        best_extent.height = preferred_extent_height;
+    }
 
     uint32_t n_swap_images = sc.capabilities.minImageCount + 1;
     if (sc.capabilities.maxImageCount > 0 && n_swap_images > sc.capabilities.maxImageCount) {
@@ -194,13 +205,13 @@ int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag) {
     swapchain->sem_present = lvArray_new(sizeof(VkSemaphore));
     swapchain->fen_frame = lvArray_new(sizeof(VkFence));
 
-    swapchain->sem_image.size = frame_lag;
+    swapchain->sem_image.size = ctx->frame_lag;
     lvArray_resize(&swapchain->sem_image);
 
     swapchain->sem_present.size = swapchain->images.size;
     lvArray_resize(&swapchain->sem_present);
 
-    swapchain->fen_frame.size = frame_lag;
+    swapchain->fen_frame.size = ctx->frame_lag;
     lvArray_resize(&swapchain->fen_frame);
 
     VkSemaphoreCreateInfo sem_info = {
@@ -216,7 +227,7 @@ int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag) {
         .flags = VK_FENCE_CREATE_SIGNALED_BIT
     };
 
-    for (size_t i = 0; i < frame_lag; i++) {
+    for (size_t i = 0; i < ctx->frame_lag; i++) {
         if (
             vkCreateSemaphore(ctx->device, &sem_info, NULL, LV_ARRAY_PTR_AT(&swapchain->sem_image, i, VkSemaphore)) != VK_SUCCESS ||
             vkCreateFence(ctx->device, &fen_info, NULL, LV_ARRAY_PTR_AT(&swapchain->fen_frame, i, VkFence)) != VK_SUCCESS
@@ -240,7 +251,7 @@ int lvSwapchain_init(lvSwapchain *swapchain, lvContext *ctx, size_t frame_lag) {
         "- Image semaphores:   %zu\n"
         "- Present semaphores: %zu\n"
         "\n",
-        frame_lag,
+        ctx->frame_lag,
         swapchain->fen_frame.size,
         swapchain->sem_image.size,
         swapchain->fen_frame.size

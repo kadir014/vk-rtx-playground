@@ -55,7 +55,7 @@ typedef struct {
     /*
         Temporary state used by the loader.
     */
-    char *current;
+    const char *current;
     char current_mtl_name[LV_OBJ_MTL_NAME_LENGTH];
     lvArray vertices;
     lvArray normals;

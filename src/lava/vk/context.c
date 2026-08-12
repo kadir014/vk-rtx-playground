@@ -110,7 +110,7 @@ static int create_instance(lvContext *ctx, SDL_Window *window) {
         .enabledExtensionCount = n_extensions,
         .ppEnabledExtensionNames = extension_names,
         .enabledLayerCount = n_requested_layers,
-        .ppEnabledLayerNames = requested_layers,
+        .ppEnabledLayerNames = (const char * const *)requested_layers,
         .flags = 0
     };
 
@@ -409,7 +409,7 @@ static int create_logical_device(lvContext *ctx) {
     ctx->families = get_queue_families(ctx->phydevice, ctx->surface);
 
     if (
-        ctx->families.graphics_idx == LV_INVALID_INDEX_U32 &&
+        ctx->families.graphics_idx == LV_INVALID_INDEX_U32 ||
         ctx->families.present_idx == LV_INVALID_INDEX_U32
     ) {
         printf("Requested queues are not found in the physical device.");
@@ -469,10 +469,15 @@ static int create_logical_device(lvContext *ctx) {
         .samplerAnisotropy = VK_TRUE
     };
 
+    size_t n_unique_families = N_UNIQUE_FAMILIES;
+    if (ctx->families.graphics_idx == ctx->families.present_idx) {
+        n_unique_families = 1;
+    }
+
     VkDeviceCreateInfo device_create_info = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = &acceleration_structure,
-        .queueCreateInfoCount = N_UNIQUE_FAMILIES,
+        .queueCreateInfoCount = n_unique_families,
         .pQueueCreateInfos = queue_create_infos,
         .pEnabledFeatures = &device_features,
         .enabledLayerCount = 0,

@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
     }
 
     lvSwapchain swapchain;
-    if (lvSwapchain_init(&swapchain, &ctx, 2) != 0) {
+    if (lvSwapchain_init(&swapchain, &ctx, window_width, window_height) != 0) {
         lv_fatal("Failed to create swapchain.");
     }
 
@@ -476,7 +476,7 @@ int main(int argc, char *argv[]) {
             .vertexStride = sizeof(lvVector3),
             .maxVertex = mesh->n_vertices - 1,
             .indexType = VK_INDEX_TYPE_NONE_KHR,
-            .indexData = 0
+            .indexData = {0}
         };
 
         VkAccelerationStructureGeometryDataKHR geo_data = {
@@ -673,7 +673,7 @@ int main(int argc, char *argv[]) {
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
         .pNext = NULL,
         .arrayOfPointers = VK_FALSE,
-        .data = inst_buf_addr
+        .data.deviceAddress = inst_buf_addr
     };
 
     VkAccelerationStructureGeometryDataKHR blas_insts_geo_data = {

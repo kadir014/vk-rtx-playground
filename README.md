@@ -5,7 +5,7 @@ My playground and toy framework trying to learn Vulkan and hopefully hardware ra
 
 # Installation & Running
 ### 📜 Prerequisites
-- Compiler that supports C99 and C++11
+- Compiler that supports C99 and C++17 (VMA needs C++17 or newer for `aligned_alloc`)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [Meson build system](https://mesonbuild.com/Getting-meson.html)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
@@ -35,6 +35,12 @@ $ cd build_dir
 $ meson compile
 $ ./main
 ```
+
+> [!NOTE]
+> On Linux, if you can't move around in the application, your display protocol might be messing with key inpus. Try forcing either `wayland` or `x11` while launching the binary:
+> ```shell
+> $ SDL_VIDEODRIVER=x11 ./main
+> ```
 
 
 # Resources & References
