@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <math.h>
 #include <string.h>
 

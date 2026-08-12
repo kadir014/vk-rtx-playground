@@ -968,30 +968,15 @@ int main(int argc, char *argv[]) {
         for (size_t model_i = 0; model_i < scene.models.size; model_i++) {
             lvModel *model = LV_ARRAY_PTR_AT(&scene.models, model_i, lvModel);
 
-            //printf("updating %zu: %s\n", model_i, model_name);
-
             MVP ubo = {
                 lvMatrix4_identity,
                 lvMatrix4_identity,
                 lvMatrix4_identity
             };
 
-            // glm_mat4_copy(camera.proj_mat, ubo.proj);
-            // glm_mat4_copy(camera.view_mat, ubo.view);
-
-            
-            // glm_translate(ubo.model, model->xform.position);
-            // //glm_euler_xyz(model->xform.rotation, ubo.model);
-            // glm_scale(ubo.model, model->xform.scale);
-
-
-            // float time = (float)lvPrecisionTimer_stop(&timer);
-
-            // glm_rotate(
-            //     ubo.model,
-            //     glm_rad(-time * 90.0f * model_i),
-            //     (vec3){0.0f, 1.0f, 0.0f}
-            // );
+            if (model_i == 1) {
+                model->xform.rotation.y += 0.5f * dtf;
+            }
 
             ubo.model = lvTransform_to_matrix4(model->xform);
             ubo.proj = camera.proj_mat;
