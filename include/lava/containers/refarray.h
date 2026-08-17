@@ -22,7 +22,8 @@ typedef struct {
 /**
  * @brief Create a new reference array.
  * 
- * Use @ref lvRefArray_valid to see if creation was successful.
+ * Use @ref lvRefArray_valid to see if creation was successful. If failed,
+ * use @ref lv_get_error to get more information.
  * 
  * @return lvRefArray
  */
@@ -31,7 +32,8 @@ lvRefArray lvRefArray_new();
 /**
  * @brief Create a new reference array.
  * 
- * Use @ref lvRefArray_valid to see if creation was successful.
+ * Use @ref lvRefArray_valid to see if creation was successful. If failed,
+ * use @ref lv_get_error to get more information.
  * 
  * @param default_capacity Initial number of elements to allocate the array with.
  * @param growth_factor Capacity multiplier used during reallocations. Must be higher than 1.
@@ -54,25 +56,25 @@ void lvRefArray_free(lvRefArray *refarray);
  * @param refarray Reference array.
  * @return Whether the state is valid or not.
  */
-bool lvRefArray_valid(const lvRefArray *refarray);
+lv_bool lvRefArray_valid(const lvRefArray *refarray);
 
 /**
  * @brief Append new element at the end of the reference array.
  * 
  * @param refarray Reference array.
  * @param elem Pointer to add.
- * @return `0` if successful.
- *         `1` if failed to reallocate.
+ * @return Possible error codes are listed below, use @ref lv_get_error to get more information:
+ * - lvResult_INVALID_ARGUMENTS
+ * - lvResult_FAILED_TO_ALLOCATE
  */
-int lvRefArray_add(lvRefArray *refarray, void *elem);
+lvResult lvRefArray_add(lvRefArray *refarray, void *elem);
 
 /**
  * @brief Remove an element by index and return the element.
  * 
  * @param refarray Reference array.
  * @param index Index of the element to remove.
- * @return Removed element if successful.
- *         `NULL` if failed.
+ * @return Removed element if successful. `NULL` if failed, use @ref lv_get_error to get more information.
  */
 void *lvRefArray_pop(lvRefArray *refarray, size_t index);
 
@@ -127,11 +129,11 @@ lvRefArray lvRefArray_copy(lvRefArray *refarray);
  * Use this function only if you manually updated the `size` member.
  * 
  * @param refarray Reference rray.
- * @return `0` if successful.
- *         `1` if failed to rallocate.
- *         `2` if array is invalid.
+ * @return Possible error codes are listed below, use @ref lv_get_error to get more information:
+ * - lvResult_INVALID_ARGUMENTS
+ * - lvResult_FAILED_TO_ALLOCATE
  */
-int lvRefArray_resize(lvRefArray *refarray);
+lvResult lvRefArray_resize(lvRefArray *refarray);
 
 
 #endif // LAVA_REFARRAY_H

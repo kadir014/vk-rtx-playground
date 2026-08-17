@@ -86,7 +86,7 @@ static inline int64_t fast_str2i64(const char **p) {
 }
 
 
-static inline bool is_whitespace(char chr) {
+static inline lv_bool is_whitespace(char chr) {
     return (chr == ' ' || chr == '\t' || chr == '\r' || chr == '\n');
 }
 
@@ -376,13 +376,13 @@ lvOBJ lvOBJ_load_raw(char *source) {
 }
 
 lvOBJ lvOBJ_load(const char *filepath) {
-    lvFileContent content = lv_read_file_raw(filepath);
-    if (!content.data) {
+    lvFileContent content;
+    if (lv_read_file_raw(filepath, &content) != lvResult_OK) {
         return (lvOBJ){0};
     }
 
     lvOBJ obj = lvOBJ_load_raw(content.data);
-    obj.loaded = true;
+    obj.loaded = LV_TRUE;
     obj.materials = lvArray_new(sizeof(lvOBJMaterialPBR));
 
     LV_FREE(content.data);
@@ -393,9 +393,9 @@ lvOBJ lvOBJ_load(const char *filepath) {
 lvOBJ lvOBJ_load_with_mtl(const char *obj_filepath, const char *mtl_filepath) {
     lvOBJ obj = lvOBJ_load(obj_filepath);
     
-    lvFileContent mtl_content = lv_read_file_raw(mtl_filepath);
-    if (!mtl_content.data) {
-        obj.loaded = false;
+    lvFileContent mtl_content;
+    if (lv_read_file_raw(mtl_filepath, &mtl_content) != lvResult_OK) {
+        obj.loaded = LV_FALSE;
         return obj;
     }
 
@@ -419,13 +419,13 @@ lvOBJMaterialPBR *lvOBJ_get_material(lvOBJ *obj, const char *name) {
         return NULL;
     }
 
-    bool found = false;
+    lv_bool found = LV_FALSE;
     lvOBJMaterialPBR *found_mat;
     for (size_t i = 0; i < obj->materials.size; i++) {
         lvOBJMaterialPBR *mat = LV_ARRAY_PTR_AT(&obj->materials, i, lvOBJMaterialPBR);
 
         if (strcmp(mat->name, name) == 0) {
-            found = true;
+            found = LV_TRUE;
             found_mat = mat;
             break;
         }

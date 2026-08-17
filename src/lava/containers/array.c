@@ -1,4 +1,3 @@
-#include <string.h>
 #include "lava/containers/array.h"
 
 
@@ -19,7 +18,14 @@ lvArray lvArray_new_ex(
         .data = NULL
     };
 
-    if (growth_factor <= 1.0f) {
+    if (growth_factor <= 1.0f || default_capacity == 0 || elem_size == 0) {
+        LV_THROW(
+            "One (or all) of the arguments is invalid:\n"
+            "  growth_factor (%f) must be higher than 1.0.\n"
+            "  default_capacity (%zu) must be higher than 0.\n"
+            "  elem_size (%zu) must be higher than 0.\n",
+            growth_factor, default_capacity, elem_size
+        );
         return array;
     }
 
@@ -36,58 +42,66 @@ void lvArray_free(lvArray *array) {
     LV_FREE(array->data);
 }
 
-bool lvArray_valid(const lvArray *array) {
+lv_bool lvArray_valid(const lvArray *array) {
     return !(
         !array ||
         !array->data ||
         array->growth_factor <= 1.0f ||
-        array->size > array->capacity
+        array->capacity == 0 ||
+        array->size > array->capacity ||
+        array->element_size == 0
     );
 }
 
-int lvArray_add(lvArray *array, void *elem) {
-    if (!array) {
-        return 2;
+lvResult lvArray_add(lvArray *array, void *elem) {
+    if (!array || !elem) {
+        LV_THROW_AND_RETURN(
+            lvResult_INVALID_ARGUMENTS,
+            "One (or all) of the arguments is NULL:\n"
+            "  array: %p\n"
+            "  elem:  %p\n",
+            array, elem
+        );
     }
 
     // Only reallocate when max capacity is reached
     if (array->size == array->capacity) {
-        array->size++;
-
         size_t new_capacity = (size_t)((float)array->capacity * array->growth_factor);
-        array->capacity = new_capacity;
 
         void *new_data = LV_REALLOC(
             array->data,
-            array->capacity * array->element_size
+            new_capacity * array->element_size
         );
 
         if (!new_data) {
-            return 1;
+            LV_THROW_EMPTY_AND_RETURN(lvResult_FAILED_TO_ALLOCATE);
         }
 
+        array->capacity = new_capacity;
         array->data = new_data;
-    }
-    else {
-        array->size++;
     }
 
     memcpy(
-        (char *)array->data + (array->size - 1) * array->element_size,
+        (char *)array->data + (array->size++) * array->element_size,
         elem,
         array->element_size
     );
 
-    return 0;
+    return lvResult_OK;
 }
 
-int lvArray_resize(lvArray *array) {
+lvResult lvArray_resize(lvArray *array) {
     if (!array) {
-        return 2;
+        LV_THROW_AND_RETURN(
+            lvResult_INVALID_ARGUMENTS,
+            "One (or all) of the arguments is NULL:\n"
+            "  array: %p\n",
+            array
+        );
     }
 
     if (array->size == array->capacity) {
-        return 0;
+        return lvResult_OK;
     }
 
     size_t new_capacity = array->size;
@@ -98,11 +112,11 @@ int lvArray_resize(lvArray *array) {
     );
 
     if (!new_data) {
-        return 1;
+        return lvResult_FAILED_TO_ALLOCATE;
     }
 
     array->capacity = new_capacity;
     array->data = new_data;
 
-    return 0;
+    return lvResult_OK;
 }

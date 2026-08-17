@@ -1,6 +1,7 @@
 #ifndef LAVA_MATH_TRANSFORM_H
 #define LAVA_MATH_TRANSFORM_H
 
+#include "lava/internal.h"
 #include "lava/math/math.h"
 #include "lava/math/vector.h"
 #include "lava/math/matrix.h"

@@ -12,14 +12,13 @@ typedef struct {
 /**
  * @brief Read raw binary content from file.
  * 
- * `lvFileContent.data` is `NULL` if failed.
- * 
- * It's caller's responsibility to free `lvFileContent.data`.
+ * It's caller's responsibility to free `lvFileContent->data`.
  * 
  * @param filepath Path to file.
- * @return lvFileContent
+ * @param content Pointer to content struct.
+ * @return Returns `lvResult_OK` if successful.
  */
-lvFileContent lv_read_file_raw(const char *filepath);
+lvResult lv_read_file_raw(const char *filepath, lvFileContent *content);
 
 
-#endif
+#endif // LAVA_IO_H

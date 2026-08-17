@@ -2,12 +2,13 @@
 #include "lava/core/io.h"
 
 
-lvFileContent lv_read_file_raw(const char *filepath) {
-    lvFileContent cont = {.length = 0, .data = NULL};
+lvResult lv_read_file_raw(const char *filepath, lvFileContent *content) {
+    content->length = 0;
+    content->data = NULL;
 
     FILE *file = fopen(filepath, "rb");
     if (!file) {
-        return cont;
+        return lvResult_COULD_NOT_OPEN_FILE;
     }
 
     // Seek to the end & rewind back to determine the file size
@@ -18,7 +19,7 @@ lvFileContent lv_read_file_raw(const char *filepath) {
     char *buffer = LV_MALLOC(length + 1);
     if (!buffer) {
         fclose(file);
-        return cont;
+        return lvResult_FAILED_TO_ALLOCATE;
     }
 
     fread(buffer, 1, length, file);
@@ -27,7 +28,8 @@ lvFileContent lv_read_file_raw(const char *filepath) {
 
     fclose(file);
     
-    cont.length = length;
-    cont.data = buffer;
-    return cont;
+    content->length = length;
+    content->data = buffer;
+    
+    return lvResult_OK;
 }

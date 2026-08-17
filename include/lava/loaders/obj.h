@@ -65,7 +65,7 @@ typedef struct {
     /*
         Public members.
     */
-    bool loaded;
+    lv_bool loaded;
     lvArray materials;
     lvOBJMesh mesh;
 } lvOBJ;

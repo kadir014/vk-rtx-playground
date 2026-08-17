@@ -2,8 +2,8 @@
 #define LAVA_INTERNAL_H
 
 #include <stdlib.h>
-#include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
 
 #include <SDL.h>
@@ -13,6 +13,8 @@
 #include <vk_mem_alloc.h>
 
 #include "lava/internal_alloc.h"
+#include "lava/core/types.h"
+#include "lava/core/error.h"
 
 
 #define LV_INVALID_INDEX_ZU (size_t)(-1)
@@ -25,6 +27,14 @@
         #define LV_MALLOC(size) _lv_malloc(size, __FILE__, __LINE__)
     #else
         #define LV_MALLOC(size) malloc(size)
+    #endif
+#endif
+
+#ifndef LV_CALLOC
+    #ifdef LV_DEBUG
+        #define LV_CALLOC(count, size) _lv_calloc(count, size, __FILE__, __LINE__)
+    #else
+        #define LV_CALLOC(count, size) calloc(count, size)
     #endif
 #endif
 

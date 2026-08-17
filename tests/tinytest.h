@@ -29,31 +29,32 @@
  * - Expect all integral types (tt_expect_[int type]).
  * 
  * Example usage:
+ * ```
+ * #include "tinytest.h"
+ * #include "some_library.h"
  * 
- *     #include "tinytest.h"
- *     #include "some_library.h"
- *     
- *     void buffer_creation(ttUnitTestSuite *test) {
- *         Buffer *buffer = CreateBuffer(24);
- *     
- *         tt_expect(buffer->size > 16, test);
- *         tt_expect_float(buffer->factor, 2.0f, test);
- *         tt_expect_uint64_t(buffer->capacity, 1024, test);
- *     }
- *     
- *     int main() {
- *         // You can choose whether to use colored output or not
- *         ttUnitTestSuite test = {0};
- *         test.colored_output = true;
- *     
- *         // Execute unit tests
- *         TT_RUN_TEST(buffer_creation);
- *     
- *         // Print the final test report
- *         tt_print_report(&test);
- *     
- *         return 0;
- *     }
+ * void buffer_creation(ttUnitTestSuite *test) {
+ *     Buffer *buffer = CreateBuffer(24);
+ * 
+ *     tt_expect(buffer->size > 16, test);
+ *     tt_expect_float(buffer->factor, 2.0f, test);
+ *     tt_expect_uint64_t(buffer->capacity, 1024, test);
+ * }
+ * 
+ * int main() {
+ *     // You can choose whether to use colored output or not
+ *     ttUnitTestSuite test = {0};
+ *     test.colored_output = true;
+ * 
+ *     // Execute unit tests
+ *     TT_RUN_TEST(buffer_creation);
+ * 
+ *     // Print the final test report
+ *     tt_print_report(&test);
+ * 
+ *     return 0;
+ * }
+ * ```
  */
 
 
@@ -131,6 +132,19 @@ typedef struct {
     test.current = #func;     \
     test.internal_tests = -1; \
     func(&test);              \
+}
+
+/**
+ * @brief Execute a unit test function.
+ * 
+ * @note You must have a pointer to a unit test context with the name `test` in the current scope.
+ * 
+ * @param func Function to execute.
+ */
+#define TT_RUN_TEST_P(func) {  \
+    test->current = #func;     \
+    test->internal_tests = -1; \
+    func(test);                \
 }
 
 /**

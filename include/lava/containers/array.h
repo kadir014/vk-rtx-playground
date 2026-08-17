@@ -38,7 +38,8 @@ typedef struct {
 /**
  * @brief Create a new array.
  * 
- * Use @ref lvArray_valid to see if creation was successful.
+ * Use @ref lvArray_valid to see if creation was successful. If failed, use
+ * @ref lv_get_error to get more information.
  * 
  * @param elem_size Size of one element.
  * @return lvArray
@@ -48,7 +49,8 @@ lvArray lvArray_new(size_t elem_size);
 /**
  * @brief Create a new array.
  * 
- * Use @ref lvArray_valid to see if creation was successful.
+ * Use @ref lvArray_valid to see if creation was successful. If failed, use
+ * @ref lv_get_error to get more information.
  * 
  * @param elem_size Size of one element.
  * @param default_capacity Initial number of elements to allocate the array with.
@@ -76,17 +78,18 @@ void lvArray_free(lvArray *array);
  * @param array Array.
  * @return Whether the state is valid or not.
  */
-bool lvArray_valid(const lvArray *array);
+lv_bool lvArray_valid(const lvArray *array);
 
 /**
  * @brief Append new element at the end of the array.
  * 
  * @param array Array.
  * @param elem Element to add.
- * @return `0` if successful.
- *         `1` if failed to reallocate.
+ * @return Possible error codes are listed below, use @ref lv_get_error to get more information:
+ * - lvResult_INVALID_ARGUMENTS
+ * - lvResult_FAILED_TO_ALLOCATE
  */
-int lvArray_add(lvArray *array, void *elem);
+lvResult lvArray_add(lvArray *array, void *elem);
 
 /**
  * @brief Synchronize the reserved space with current size.
@@ -94,11 +97,11 @@ int lvArray_add(lvArray *array, void *elem);
  * Use this function only if you manually updated the `size` member.
  * 
  * @param array Array.
- * @return `0` if successful.
- *         `1` if failed to rallocate.
- *         `2` if array is invalid.
+ * @return Possible error codes are listed below, use @ref lv_get_error to get more information:
+ * - `lvResult_INVALID_ARGUMENTS`
+ * - `lvResult_FAILED_TO_ALLOCATE`
  */
-int lvArray_resize(lvArray *array);
+lvResult lvArray_resize(lvArray *array);
 
 
 #endif // LAVA_ARRAY_H

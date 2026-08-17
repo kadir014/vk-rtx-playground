@@ -30,7 +30,7 @@ static inline void lvPrecisionTimer_start(lvPrecisionTimer *timer);
  * the state of the timer, it only recomputes `now - start`.
  * 
  * @param timer Pointer to lvPrecisionTimer.
- * @return double Elapsed time in seconds.
+ * @return Elapsed time in seconds.
  */
 static inline double lvPrecisionTimer_stop(lvPrecisionTimer *timer);
 
@@ -64,7 +64,7 @@ static inline double lvPrecisionTimer_stop(lvPrecisionTimer *timer);
     #include <time.h>
     #include <unistd.h>
 
-    // TODO: On OSX, frequency can be milliseconds instead of nanoseconds
+    // TODO: On OSX, frequency can be milliseconds instead of nanoseconds? Needs researching
     #define LV_PRECISION_TIMER_NS_PER_SECOND 1e9
 
     typedef struct _lvPrecisionTimer {

@@ -4,6 +4,8 @@
 
 #include "lava/internal.h"
 
+#include "lava/core/types.h"
+#include "lava/core/error.h"
 #include "lava/core/timer.h"
 #include "lava/core/clock.h"
 #include "lava/core/io.h"
@@ -16,6 +18,7 @@
 
 #include "lava/containers/array.h"
 #include "lava/containers/refarray.h"
+#include "lava/containers/hashmap.h"
 
 #include "lava/loaders/obj.h"
 

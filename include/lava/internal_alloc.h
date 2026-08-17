@@ -1,8 +1,7 @@
 #ifndef LAVA_INTERNAL_ALLOC_H
 #define LAVA_INTERNAL_ALLOC_H
 
-#include "stdlib.h"
-#include "stdint.h"
+#include <stdlib.h>
 
 
 /**
@@ -14,11 +13,13 @@
 void lv_check_leaks();
 
 
-void *_lv_malloc(size_t size, const char *file, uint32_t line);
+void *_lv_malloc(size_t size, const char *file, unsigned int line);
 
-void *_lv_realloc(void *ptr, size_t new_size, const char *file, uint32_t line);
+void *_lv_calloc(size_t count, size_t size, const char *file, unsigned int line);
 
-void _lv_free(void *ptr, const char *file, uint32_t line);
+void *_lv_realloc(void *ptr, size_t new_size, const char *file, unsigned int line);
+
+void _lv_free(void *ptr, const char *file, unsigned int line);
 
 
 #endif // LAVA_INTERNAL_ALLOC_H

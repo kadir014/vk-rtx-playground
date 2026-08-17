@@ -46,9 +46,11 @@ lava_src = [
 
     'src/lava/core/clock.c',
     'src/lava/core/io.c',
+    'src/lava/core/error.c',
 
     'src/lava/containers/array.c',
     'src/lava/containers/refarray.c',
+    'src/lava/containers/hashmap.c',
 
     'src/lava/loaders/obj.c',
 
@@ -61,7 +63,7 @@ lava_src = [
 
     'src/lava/world/camera.c',
     'src/lava/world/mesh.c',
-    'src/lava/world/scene.c',
+    'src/lava/world/scene.c'
 ]
 
 lava_includes = ['include']

@@ -3,7 +3,7 @@
 
 #define PRINT_SEPARATOR "──────────────────────────────────────────────────"
 #define INITIAL_CAPACITY 8192
-#define GROWTH_FACTOR 3.0f
+#define GROWTH_FACTOR 2.0f
 
 
 /**
@@ -14,7 +14,7 @@ typedef struct {
     size_t size; /**< Size requested for allocation. */
     size_t reallocs; /**< How many times did this block get reallocated. */
     const char *file; /**< File path to the source. */
-    uint32_t line; /**< Line number in source. */
+    unsigned int line; /**< Line number in source. */
 } Allocation;
 
 static Allocation *g_allocs;
@@ -29,7 +29,7 @@ static void ensure_initialized() {
     g_allocs = calloc(g_capacity, sizeof(Allocation));
 }
 
-static bool add(Allocation *alloc) {
+static lv_bool add(Allocation *alloc) {
     if (g_size == g_capacity) {
         size_t new_capacity = (size_t)((float)g_capacity * GROWTH_FACTOR);
 
@@ -39,7 +39,7 @@ static bool add(Allocation *alloc) {
         );
 
         if (!new_allocs) {
-            return false;
+            return LV_FALSE;
         }
 
         g_allocs = new_allocs;
@@ -48,7 +48,7 @@ static bool add(Allocation *alloc) {
 
     g_allocs[g_size++] = *alloc;
 
-    return true;
+    return LV_TRUE;
 }
 static void pop(size_t index) {
     if (g_size == 0 || index >= g_size) {
@@ -63,7 +63,7 @@ static void pop(size_t index) {
     g_allocs[g_size] = (Allocation){0};
 }
 
-void *_lv_malloc(size_t size, const char *file, uint32_t line) {
+void *_lv_malloc(size_t size, const char *file, unsigned int line) {
     ensure_initialized();
 
     void *ptr = malloc(size);
@@ -92,7 +92,35 @@ void *_lv_malloc(size_t size, const char *file, uint32_t line) {
     return ptr;
 }
 
-void *_lv_realloc(void *ptr, size_t new_size, const char *file, uint32_t line) {
+void *_lv_calloc(size_t count, size_t size, const char *file, unsigned int line) {
+    ensure_initialized();
+
+    void *ptr = calloc(count, size);
+
+    if (!ptr) {
+        return NULL;
+    }
+
+    Allocation alloc = {
+        .ptr = ptr,
+        .size = size * count,
+        .reallocs = 0,
+        .file = file,
+        .line = line
+    };
+
+    if (!add(&alloc)) {
+        if (ptr) {
+            free(ptr);
+        }
+
+        return NULL;
+    }
+
+    return ptr;
+}
+
+void *_lv_realloc(void *ptr, size_t new_size, const char *file, unsigned int line) {
     ensure_initialized();
 
     // realloc(NULL, ...) is valid in C
@@ -106,11 +134,11 @@ void *_lv_realloc(void *ptr, size_t new_size, const char *file, uint32_t line) {
         return NULL;
     }
 
-    bool found = false;
+    lv_bool found = LV_FALSE;
     size_t found_idx = 0;
     for (size_t i = 0; i < g_size; i++) {
         if (g_allocs[i].ptr == ptr) {
-            found = true;
+            found = LV_TRUE;
             found_idx = i;
             break;
         }
@@ -146,14 +174,14 @@ void *_lv_realloc(void *ptr, size_t new_size, const char *file, uint32_t line) {
     return new_ptr;
 }
 
-void _lv_free(void *ptr, const char *file, uint32_t line) {
+void _lv_free(void *ptr, const char *file, unsigned int line) {
     ensure_initialized();
 
-    bool found = false;
+    lv_bool found = LV_FALSE;
     size_t found_idx = 0;
     for (size_t i = 0; i < g_size; i++) {
         if (g_allocs[i].ptr == ptr) {
-            found = true;
+            found = LV_TRUE;
             found_idx = i;
             break;
         }

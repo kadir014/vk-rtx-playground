@@ -14,7 +14,13 @@ lvRefArray lvRefArray_new_ex(size_t default_capacity, float growth_factor) {
         .data = NULL
     };
 
-    if (growth_factor <= 1.0f) {
+    if (growth_factor <= 1.0f || default_capacity == 0) {
+        LV_THROW(
+            "One (or all) of the arguments is invalid:\n"
+            "  growth_factor (%f) must be higher than 1.0.\n"
+            "  default_capacity (%zu) must be higher than 0.\n",
+            growth_factor, default_capacity
+        );
         return refarray;
     }
 
@@ -37,40 +43,47 @@ void lvRefArray_free(lvRefArray *refarray) {
     LV_FREE(refarray->data);
 }
 
-bool lvRefArray_valid(const lvRefArray *refarray) {
+lv_bool lvRefArray_valid(const lvRefArray *refarray) {
     return !(
+        !refarray ||
         !refarray->data ||
         refarray->growth_factor <= 1.0f ||
+        refarray->capacity == 0 ||
         refarray->size > refarray->capacity
     );
 }
 
-int lvRefArray_add(lvRefArray *refarray, void *elem) {
+lvResult lvRefArray_add(lvRefArray *refarray, void *elem) {
+    if (!refarray || !elem) {
+        LV_THROW_AND_RETURN(
+            lvResult_INVALID_ARGUMENTS,
+            "One (or all) of the arguments is NULL:\n"
+            "  refarray: %p\n"
+            "  elem:     %p\n",
+            refarray, elem
+        );
+    }
+
     // Only reallocate when max capacity is reached
     if (refarray->size == refarray->capacity) {
-        refarray->size++;
-
         size_t new_capacity = (size_t)((float)refarray->capacity * refarray->growth_factor);
-        refarray->capacity = new_capacity;
 
         void **new_data = LV_REALLOC(
             refarray->data,
-            refarray->capacity * sizeof(void *)
+            new_capacity * sizeof(void *)
         );
 
         if (!new_data) {
-            return 1;
+            LV_THROW_EMPTY_AND_RETURN(lvResult_FAILED_TO_ALLOCATE);
         }
 
+        refarray->capacity = new_capacity;
         refarray->data = new_data;
     }
-    else {
-        refarray->size++;
-    }
 
-    refarray->data[refarray->size - 1] = elem;
+    refarray->data[refarray->size++] = elem;
 
-    return 0;
+    return lvResult_OK;
 }
 
 void *lvRefArray_pop(lvRefArray *refarray, size_t index) {
@@ -152,13 +165,18 @@ lvRefArray lvRefArray_copy(lvRefArray *refarray) {
     return copy;
 }
 
-int lvRefArray_resize(lvRefArray *refarray) {
+lvResult lvRefArray_resize(lvRefArray *refarray) {
     if (!refarray) {
-        return 2;
+        LV_THROW_AND_RETURN(
+            lvResult_INVALID_ARGUMENTS,
+            "One (or all) of the arguments is NULL:\n"
+            "  refarray: %p\n",
+            refarray
+        );
     }
 
     if (refarray->size == refarray->capacity) {
-        return 0;
+        return lvResult_OK;
     }
 
     size_t new_capacity = refarray->size;
@@ -169,11 +187,11 @@ int lvRefArray_resize(lvRefArray *refarray) {
     );
 
     if (!new_data) {
-        return 1;
+        LV_THROW_EMPTY_AND_RETURN(lvResult_FAILED_TO_ALLOCATE);
     }
 
     refarray->capacity = new_capacity;
     refarray->data = new_data;
 
-    return 0;
+    return lvResult_OK;
 }
