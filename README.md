@@ -1,7 +1,7 @@
 # vk-rtx-playground
 My playground and toy framework trying to learn Vulkan and hardware raytracing!
 <br>
-<img width=600 src="https://raw.githubusercontent.com/kadir014/vk-rtx-playground/refs/heads/main/assets/thumb.png">
+<img width=600 src="https://raw.githubusercontent.com/kadir014/vk-rtx-playground/refs/heads/main/assets/github/thumb.png">
 
 
 
