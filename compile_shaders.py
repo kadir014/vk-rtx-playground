@@ -44,6 +44,10 @@ def main():
         for file in files:
             input = root / file
 
+            # Skip header shader files
+            if input.parent.stem == "lib":
+                continue
+
             suffix = input.suffix.lower().strip()
 
             if suffix in SPIRV:
@@ -77,7 +81,7 @@ def main():
                 ext = "comp"
 
             if not stage:
-                print(f"[FAILED] Could not determine shader stage of '{input}', skipping.")
+                print(f"[SKIPPING] Could not determine shader stage of '{input}'.")
                 continue
 
             output = root / f"{input.stem}.{ext}.spv"
