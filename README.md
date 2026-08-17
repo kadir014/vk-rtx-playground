@@ -1,10 +1,12 @@
 # vk-rtx-playground
-My playground and toy framework trying to learn Vulkan and hopefully hardware raytracing...
+My playground and toy framework trying to learn Vulkan and hardware raytracing!
+<br>
+<img width=600 src="https://raw.githubusercontent.com/kadir014/vk-rtx-playground/refs/heads/main/assets/thumb.png">
 
 
 
 # Installation & Running
-### 📜 Prerequisites
+### 📌 Prerequisites
 - Compiler that supports C99 and C++17 (VMA needs C++17 or newer for `aligned_alloc`)
 - [Python 3.12+](https://www.python.org/downloads/)
 - [Meson build system](https://mesonbuild.com/Getting-meson.html)
